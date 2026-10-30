@@ -180,7 +180,9 @@
   // and the Google calendar each one saves timed items to (a calendar name or id, "primary" = your own
   // main calendar; "" = dashboard only).
   // Can be changed in the page under "Settings".
-  var DEFAULT_SETTINGS={cats:[
+  // "reminders" = pop-ups added to every calendar event the dashboard creates, in minutes before it
+  // (10080 = 1 week, 4320 = 3 days, 1440 = 1 day, 60 = 1 hour). Google allows at most 5 per event.
+  var DEFAULT_SETTINGS={reminders:[10080,4320,1440,60],cats:[
     {name:'School',cal:'',words:['student*','parent*','class','classes','teacher*','principal','counsel*','session*','school','assembly','referral','staff','exam']},
     {name:'Eureka Hope',cal:'Freelance CS Schedule',words:['eureka','hope','invoice','clinic','orton','og','tutor*','learner*','dyslexia','literacy','msl','therapy','lesson plan']},
     {name:'Personal',cal:'primary',words:['dentist','doctor','birthday','gym','groceries','buy','bill','bills','flight','haircut','medicine','meds','church','pick up']},
@@ -203,6 +205,17 @@
       if(n>top){top=n;best=c;tie=false} else if(n&&n===top) tie=true});
     return tie?'':best;
   }
+  var QTYRE='(?:\\d+|a few|few|an?|one|two|three|four|five|six|seven|the)', UNITRE='(?:weeks?|days?|hours?|hrs?|minutes?|mins?)';
+  var QTYNUM={a:1,an:1,one:1,the:1,two:2,three:3,four:4,five:5,six:6,seven:7,'a few':3,few:3};
+  function remindMins(str){   // "a day and 2 hours" -> [1440,120]; "a few" = 3
+    var out=[], re=new RegExp('('+QTYRE+')\\s*('+UNITRE+')','gi'), m;
+    while((m=re.exec(str))){
+      var q=QTYNUM[m[1].toLowerCase()]||+m[1], u=m[2].toLowerCase()[0], mins=q*(u==='w'?10080:u==='d'?1440:u==='h'?60:1);
+      if(mins>0&&mins<=40320&&out.indexOf(mins)<0) out.push(mins);   // Google allows up to 4 weeks
+    }
+    return out;
+  }
+  function fmtMins(m){return m%10080===0?m/10080+' week'+(m>10080?'s':''):m%1440===0?m/1440+' day'+(m>1440?'s':''):m%60===0?m/60+' hour'+(m>60?'s':''):m+' min'}
   var DOW=['sun','mon','tue','wed','thu','fri','sat'];
   var MONTHRE='(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?|sept?(?:ember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)';
   var WDRE='(monday|tuesday|wednesday|thursday|friday|saturday|sunday|mon|tues?|wed|thu(?:rs?)?|fri|sat|sun)';
@@ -220,7 +233,7 @@
   // Turns free text like "call mum tomorrow 3pm !" into {text,due,time,repeat,cat,high}.
   function parseReminder(raw,now){
     now=now||new Date();
-    var today=ymd(now), s=' '+raw+' ', out={text:'',due:'',time:'',repeat:'none',cat:'',high:false}, r;
+    var today=ymd(now), s=' '+raw+' ', out={text:'',due:'',time:'',repeat:'none',cat:'',high:false,remind:[]}, r;
     function take(re){var m=re.exec(s); if(m) s=s.slice(0,m.index)+' '+s.slice(m.index+m[0].length); return m}
     function hhmm(h,m){return pad(h)+':'+(m||'00')}
 
@@ -230,6 +243,9 @@
       var tg=ht[1].toLowerCase(), hit=CATS.filter(function(c){return c.toLowerCase().replace(/\s/g,'').indexOf(tg)===0})[0];
       if(hit){ out.cat=hit; s=s.slice(0,ht.index)+' '+s.slice(ht.index+ht[0].length); break; }
     }
+
+    // "remind me 1 day before", "a few hours before", "remind me a day and an hour before"
+    if((r=take(new RegExp('\\b(?:and\\s+)?remind(?:er)?s?(?:\\s+me)?\\s+((?:'+QTYRE+'\\s*'+UNITRE+'(?:\\s*(?:,|and|&)\\s*)?)+)\\s*before\\b','i')))) out.remind=remindMins(r[1]);
 
     // repeat
     if((r=take(/\bevery\s+(day|weekday|week|month)\b/i))){out.repeat={day:'daily',weekday:'weekdays',week:'weekly',month:'monthly'}[r[1].toLowerCase()]}
@@ -404,7 +420,7 @@
   function build(){
     var p=parseReminder(val('fText')), rep=val('fRep')||p.repeat, time=val('fTime')||p.time;
     var guessed=p.cat||CATS[0];
-    return {text:p.text,time:time,repeat:rep,cat:catPick||guessed,guessed:guessed,
+    return {text:p.text,time:time,repeat:rep,cat:catPick||guessed,guessed:guessed,remind:p.remind,
       high:p.high||document.getElementById('fHigh').checked,due:fillDue(val('fDate')||p.due,time,rep)};
   }
   var catPick='';   // category chosen by clicking a chip; '' = automatic
@@ -428,6 +444,7 @@
     if(b.repeat!=='none') parts.push('repeats '+b.repeat);
     parts.push(b.cat); if(b.high) parts.push('★ important');
     var dest=destFor(b); parts.push(dest?'📅 saves to '+dest.summary:'dashboard only');
+    if(b.remind.length) parts.push('🔔 + '+b.remind.map(fmtMins).join(', ')+' before');
     var t=document.createElement('b'); t.textContent=b.text; box.appendChild(t);
     parts.forEach(function(x){var c=document.createElement('span'); c.className='chip'; c.textContent=x; box.appendChild(c)});
   }
@@ -436,7 +453,7 @@
     e.preventDefault();
     if(!val('fText').trim()) return;
     var b=build(), cal=destFor(b);
-    function local(){ items.push({id:uid(),text:b.text,cat:b.cat,due:b.due,time:b.time,repeat:b.repeat,high:b.high,done:false,doneAt:0}); save(); render(); }
+    function local(){ items.push({id:uid(),text:b.text,cat:b.cat,due:b.due,time:b.time,repeat:b.repeat,high:b.high,done:false,doneAt:0,remind:b.remind,created:Date.now()}); save(); render(); }
     if(cal){   // timed item with a calendar -> real calendar event; otherwise a dashboard to-do
       createEvent(b,cal).then(function(){ gStatus('Added to '+cal.summary+'.'); return syncEvents(); })
         .catch(function(err){ gStatus('Could not save to the calendar ('+err.message+'). Kept in the dashboard instead.'); local(); });
@@ -454,7 +471,7 @@
     try{ var d=JSON.parse(io.value);
       if(!Array.isArray(d)) throw 0;
       items=d.filter(function(x){return x&&typeof x.text==='string'}).map(function(x){
-        return {id:x.id||uid(),text:x.text,cat:x.cat||'General',due:x.due||'',time:x.time||'',repeat:x.repeat||'none',high:!!x.high,done:!!x.done,doneAt:x.doneAt||0}});
+        return {id:x.id||uid(),text:x.text,cat:x.cat||'General',due:x.due||'',time:x.time||'',repeat:x.repeat||'none',high:!!x.high,done:!!x.done,doneAt:x.doneAt||0,remind:Array.isArray(x.remind)?x.remind:[],created:x.created||0}});
       save(); render(); io.value='Imported '+items.length+' items.';
     }catch(e){ io.value='Could not import: the text is not valid exported data.'; }
   });
@@ -525,6 +542,18 @@
       if(it.remote&&it.time<addMins(hm,-30)) return;   // don't pop up for calendar events that started over 30 min ago
       var k=it.due+'T'+it.time+'|'+it.id; if(fired[k]) return;
       fired[k]=1; fresh.push(it);
+    });
+    // "remind me ... before" on dashboard-only items. Date-only items remind at 08:00 (the day count before that).
+    var nowMs=Date.now();
+    items.forEach(function(it){
+      if(it.done||!it.due||!it.remind||!it.remind.length) return;
+      var base=new Date(it.due+'T'+(it.time||'08:00')+':00').getTime();
+      if(base<nowMs) return;
+      it.remind.forEach(function(m){
+        var trig=base-((it.time||m>=1440)?m*60000:0), k=it.due+'T'+(it.time||'')+'|r'+m+'|'+it.id;
+        if(trig>nowMs||trig<(it.created||0)||fired[k]) return;   // not yet, or already past when it was added
+        fired[k]=1; fresh.push({id:it.id+':r'+m,text:it.text+'  ('+fmtMins(m)+' before)',time:'',cat:it.cat,remote:true});
+      });
     });
     if(fresh.length){ saveFired(); showAlert(fresh); }
   }
@@ -617,11 +646,17 @@
         .catch(function(e){ gStatus('Could not read "'+t.g.summary+'": '+e.message); return []; });
     })).then(function(lists){ remote=[].concat.apply([],lists); render(); checkAlerts(); });
   }
+  // The typed "remind me ... before" times, plus your usual defaults (extras win if there are more than 5).
+  function eventReminders(extra){
+    extra=(extra||[]).slice(0,5);
+    var defs=((settings&&settings.reminders)||[10080,4320,1440,60]).filter(function(m){return extra.indexOf(m)<0});
+    return extra.concat(defs.slice(0,5-extra.length)).sort(function(a,b){return b-a});
+  }
   function localISO(d){return ymd(d)+'T'+pad(d.getHours())+':'+pad(d.getMinutes())+':00'}
   function createEvent(b,cal){
     var st=new Date(b.due+'T'+b.time+':00'), en=new Date(st.getTime()+3600000), tz=Intl.DateTimeFormat().resolvedOptions().timeZone;
     var body={summary:b.text,start:{dateTime:localISO(st),timeZone:tz},end:{dateTime:localISO(en),timeZone:tz},
-      reminders:{useDefault:false,overrides:[{method:'popup',minutes:10}]}};
+      reminders:{useDefault:false,overrides:eventReminders(b.remind).map(function(m){return {method:'popup',minutes:m}})}};
     if(RRULE[b.repeat]) body.recurrence=[RRULE[b.repeat]];
     return gfetch('/calendars/'+encodeURIComponent(cal.id)+'/events',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
   }
