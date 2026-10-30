@@ -19,7 +19,10 @@
   .banner{padding:12px 16px;border-radius:10px;font-weight:600;margin-bottom:14px;background:#e8f3ea;color:var(--ok)}
   .banner.warn{background:var(--warnbg);color:var(--warn)}
   .banner.today{background:var(--todaybg);color:var(--today)}
-  .alertbar{display:flex;gap:8px;margin:-4px 0 14px}
+  .gstat{margin:-8px 0 12px;min-height:1.2em}
+  .calmark{width:22px;flex:none;text-align:center;margin-top:1px}
+  details{margin-bottom:10px}
+  .alertbar{display:flex;gap:8px;margin:-4px 0 14px;flex-wrap:wrap}
   .alertbar button{font-size:.82rem;padding:4px 10px;color:var(--muted)}
   .alert{position:fixed;top:16px;left:50%;transform:translateX(-50%);width:min(560px,92vw);z-index:50;background:#fff;border:2px solid var(--today);border-radius:12px;padding:14px 16px;box-shadow:0 10px 40px rgba(0,0,0,.28)}
   .alert[hidden]{display:none}
@@ -90,7 +93,8 @@
   <div id="alert" class="alert" role="alertdialog" aria-live="assertive" hidden></div>
 
   <div id="banner" class="banner"></div>
-  <div class="alertbar"><button id="btnNotify" type="button"></button> <button id="btnTest" type="button">Test pop-up</button></div>
+  <div class="alertbar"><button id="btnGoogle" type="button"></button> <button id="btnNotify" type="button"></button> <button id="btnTest" type="button">Test pop-up</button></div>
+  <div class="note gstat" id="gStatus" aria-live="polite"></div>
 
   <form class="add" id="addForm" autocomplete="off">
     <div class="row">
@@ -112,6 +116,18 @@
   </form>
 
   <div id="lists"></div>
+
+  <details>
+    <summary>Settings: categories and calendars</summary>
+    <div class="note" id="mapInfo"></div>
+    <textarea id="setBox" aria-label="Settings JSON"></textarea>
+    <div class="tools">
+      <button id="btnSetSave" type="button">Save settings</button>
+      <button id="btnSetReset" type="button">Reset to defaults</button>
+    </div>
+    <div class="note">Each category has a <b>name</b>, <b>words</b> that hint at it (end a word with * to match any ending), and <b>cal</b>: the name of the Google calendar it saves timed items to (leave "" to keep them in the dashboard only). Saved in this browser only.</div>
+    <div class="note" id="setMsg"></div>
+  </details>
 
   <details>
     <summary>Backup / move data between home and school</summary>
@@ -159,16 +175,28 @@
   function uid(){return Date.now().toString(36)+Math.random().toString(36).slice(2,6)}
 
   //<parser>
-  // Words that hint at a category. Edit these lists to suit your own work; most matches wins.
-  var CATS=['Work','Side Project','Personal'];
-  var CATWORDS={
-    'Work':/\b(meeting|report|email|deadline|client|team|project|review|presentation|call|office|boss)\b/gi,
-    'Side Project':/\b(side|hobby|blog|freelance|invoice|workshop|course|study|write|writing)\b/gi,
-    'Personal':/\b(mum|mom|dad|home|dentist|doctor|birthday|gym|groceries|buy|bill|bills|family|wife|husband|kids|anniversary|flight|haircut|medicine|meds|church|pick up)\b/gi
-  };
+  //<defaults>
+  // Categories, the words that hint at each one (most matches wins; "*" ends a word, e.g. counsel*),
+  // and the Google calendar each one saves timed items to (a calendar name or id; "" = dashboard only).
+  // Can be changed in the page under "Settings".
+  var DEFAULT_SETTINGS={cats:[
+    {name:'Work',cal:'',words:['meeting*','report*','email*','deadline*','client*','team','project*','review','presentation','call','office']},
+    {name:'Side Project',cal:'',words:['side','hobby','blog','freelance','invoice','workshop','course','study','write','writing']},
+    {name:'Personal',cal:'',words:['mum','mom','dad','home','dentist','doctor','birthday','gym','groceries','buy','bill','bills','family','wife','husband','kids','anniversary','flight','haircut','medicine','meds','church','pick up']}
+  ]};
+  //</defaults>
+  var settings=null, CATS=[], CATWORDS={};
+  function escRe(w){return w.replace(/[.*+?^${}()|[\]\\]/g,'\\$&').replace(/\\\*/g,'\\w*')}
+  function applySettings(st){
+    settings=st; CATS=st.cats.map(function(c){return c.name}); CATWORDS={};
+    st.cats.forEach(function(c){
+      var ws=(c.words||[]).filter(Boolean).map(escRe);
+      CATWORDS[c.name]=ws.length?new RegExp('\\b('+ws.join('|')+')\\b','gi'):null;
+    });
+  }
   function guessCat(text){
     var best='', top=0, tie=false;
-    CATS.forEach(function(c){var n=(text.match(CATWORDS[c])||[]).length; if(n>top){top=n;best=c;tie=false} else if(n&&n===top) tie=true});
+    CATS.forEach(function(c){var n=CATWORDS[c]?(text.match(CATWORDS[c])||[]).length:0; if(n>top){top=n;best=c;tie=false} else if(n&&n===top) tie=true});
     return tie?'':best;
   }
   var DOW=['sun','mon','tue','wed','thu','fri','sat'];
@@ -193,8 +221,10 @@
     function hhmm(h,m){return pad(h)+':'+(m||'00')}
 
     if(take(/!+(?=\s*$)/)) out.high=true;
-    if((r=take(/#(work|side|home|personal)\b/i))){
-      var c=r[1].toLowerCase(); out.cat=c==='work'?'Work':c==='side'?'Side Project':'Personal';
+    var hre=/#([a-z]+)\b/ig, ht;   // #tag picks the category whose name starts with it (e.g. #side -> Side Project)
+    while((ht=hre.exec(s))){
+      var tg=ht[1].toLowerCase(), hit=CATS.filter(function(c){return c.toLowerCase().replace(/\s/g,'').indexOf(tg)===0})[0];
+      if(hit){ out.cat=hit; s=s.slice(0,ht.index)+' '+s.slice(ht.index+ht[0].length); break; }
     }
 
     // repeat
@@ -252,6 +282,7 @@
     while(repeat==='weekdays'&&(parse(d).getDay()%6===0)) d=addDays(d,1);
     return d;
   }
+  applySettings(DEFAULT_SETTINGS);
   //</parser>
 
   function cmp(a,b){
@@ -265,10 +296,12 @@
     var li=document.createElement('li'); li.dataset.id=it.id;
     if(it.high) li.classList.add('high');
     if(it.done) li.classList.add('done');
-    if(!it.done && it.due===today && it.time && it.time<=hm) li.classList.add('due-now');
+    if(!it.done && !it.remote && it.due===today && it.time && it.time<=hm) li.classList.add('due-now');
 
-    var cb=document.createElement('input'); cb.type='checkbox'; cb.checked=it.done; cb.title='Mark done';
-    cb.addEventListener('change',function(){toggle(it.id)});
+    var cb;
+    if(it.remote){ cb=document.createElement('span'); cb.className='calmark'; cb.textContent='📅'; cb.title='Calendar event: '+it.calName; }
+    else{ cb=document.createElement('input'); cb.type='checkbox'; cb.checked=it.done; cb.title='Mark done';
+      cb.addEventListener('change',function(){toggle(it.id)}); }
 
     var body=document.createElement('div'); body.className='body';
     var t=document.createElement('div'); t.className='t'; t.textContent=it.text;
@@ -278,16 +311,18 @@
     else if(it.time) bits.push(it.time);
     if(it.repeat&&it.repeat!=='none') bits.push('repeats '+it.repeat);
     bits.forEach(function(b){var s=document.createElement('span');s.textContent=b;meta.appendChild(s)});
-    var tag=document.createElement('span'); tag.className='tag'; tag.textContent=it.cat||'General'; meta.appendChild(tag);
+    var tag=document.createElement('span'); tag.className='tag'; tag.textContent=it.remote?(it.cat||'')+(it.calName&&it.calName!==it.cat?' · '+it.calName:''):(it.cat||'General'); meta.appendChild(tag);
     body.appendChild(t); body.appendChild(meta);
 
     var acts=document.createElement('div'); acts.className='acts';
     function btn(label,title,fn){var b=document.createElement('button');b.textContent=label;b.title=title;b.type='button';b.addEventListener('click',fn);acts.appendChild(b)}
-    if(!it.done){
-      btn('Tomorrow','Move to tomorrow',function(){snooze(it.id)});
-      btn('Edit','Edit text',function(){edit(t,it.id)});
+    if(!it.remote){
+      if(!it.done){
+        btn('Tomorrow','Move to tomorrow',function(){snooze(it.id)});
+        btn('Edit','Edit text',function(){edit(t,it.id)});
+      }
+      btn('✕','Delete',function(){del(it.id)});
     }
-    btn('✕','Delete',function(){del(it.id)});
 
     li.appendChild(cb); li.appendChild(body); li.appendChild(acts);
     return li;
@@ -305,7 +340,7 @@
 
   function render(){
     var today=ymd(new Date()), hm=nowHM(), week=addDays(today,7);
-    var open=items.filter(function(i){return !i.done}).sort(cmp);
+    var open=items.concat(remote).filter(function(i){return !i.done}).sort(cmp);
     var overdue=open.filter(function(i){return i.due&&i.due<today});
     var td=open.filter(function(i){return i.due===today});
     var soon=open.filter(function(i){return i.due>today&&i.due<=week});
@@ -363,7 +398,7 @@
   // Merge what was typed with the optional manual fields (manual wins).
   function build(){
     var p=parseReminder(val('fText')), rep=val('fRep')||p.repeat, time=val('fTime')||p.time;
-    var guessed=p.cat||'Work';
+    var guessed=p.cat||CATS[0];
     return {text:p.text,time:time,repeat:rep,cat:catPick||guessed,guessed:guessed,
       high:p.high||document.getElementById('fHigh').checked,due:fillDue(val('fDate')||p.due,time,rep)};
   }
@@ -387,6 +422,7 @@
     else parts.push('No date (to-do list)');
     if(b.repeat!=='none') parts.push('repeats '+b.repeat);
     parts.push(b.cat); if(b.high) parts.push('★ important');
+    var dest=destFor(b); parts.push(dest?'📅 saves to '+dest.summary:'dashboard only');
     var t=document.createElement('b'); t.textContent=b.text; box.appendChild(t);
     parts.forEach(function(x){var c=document.createElement('span'); c.className='chip'; c.textContent=x; box.appendChild(c)});
   }
@@ -394,11 +430,14 @@
   document.getElementById('addForm').addEventListener('submit',function(e){
     e.preventDefault();
     if(!val('fText').trim()) return;
-    var b=build();
-    items.push({id:uid(),text:b.text,cat:b.cat,due:b.due,time:b.time,repeat:b.repeat,high:b.high,done:false,doneAt:0});
-    save();
+    var b=build(), cal=destFor(b);
+    function local(){ items.push({id:uid(),text:b.text,cat:b.cat,due:b.due,time:b.time,repeat:b.repeat,high:b.high,done:false,doneAt:0}); save(); render(); }
+    if(cal){   // timed item with a calendar -> real calendar event; otherwise a dashboard to-do
+      createEvent(b,cal).then(function(){ gStatus('Added to '+cal.summary+'.'); return syncEvents(); })
+        .catch(function(err){ gStatus('Could not save to the calendar ('+err.message+'). Kept in the dashboard instead.'); local(); });
+    } else local();
     this.reset(); catPick=''; showPreview();
-    document.getElementById('fText').focus(); render();
+    document.getElementById('fText').focus();
   });
 
   var io=document.getElementById('io');
@@ -462,7 +501,7 @@
       var t=document.createElement('div'); t.className='atext'; t.textContent=(it.time?it.time+'  ':'')+it.text; r.appendChild(t);
       function b(label,fn,cls){var x=document.createElement('button'); x.type='button'; x.textContent=label; if(cls) x.className=cls; x.addEventListener('click',fn); r.appendChild(x)}
       b('Done',function(){ if(it.id!=='test') toggle(it.id); dropAlert(it.id) },'primary');
-      b('+10 min',function(){ if(it.id!=='test'){snoozeBy(it.id,10); render()} dropAlert(it.id) });
+      if(!it.remote) b('+10 min',function(){ if(it.id!=='test'){snoozeBy(it.id,10); render()} dropAlert(it.id) });
       box.appendChild(r);
     });
     var c=document.createElement('button'); c.type='button'; c.className='aclose'; c.textContent='Dismiss'; c.addEventListener('click',closeAlert); box.appendChild(c);
@@ -476,8 +515,9 @@
   }
   function checkAlerts(){
     var today=ymd(new Date()), hm=nowHM(), fresh=[];
-    items.forEach(function(it){
+    items.concat(remote).forEach(function(it){
       if(it.done||it.due!==today||!it.time||it.time>hm) return;
+      if(it.remote&&it.time<addMins(hm,-30)) return;   // don't pop up for calendar events that started over 30 min ago
       var k=it.due+'T'+it.time+'|'+it.id; if(fired[k]) return;
       fired[k]=1; fresh.push(it);
     });
@@ -497,16 +537,135 @@
     showAlert([{id:'test',text:'This is a test reminder',time:nowHM()}]);
   });
 
+  // ---- Google Calendar (sign-in runs in a Google pop-up; the token stays in this tab only) ----
+  var GCLIENT='242696215667-mhpvk894fclhnqmvhc3e0a7jv16hc0fe.apps.googleusercontent.com';
+  var GSCOPE='https://www.googleapis.com/auth/calendar.calendarlist.readonly https://www.googleapis.com/auth/calendar.events';
+  var GAPI='https://www.googleapis.com/calendar/v3', TKEY='reminders.dashboard.gtoken', SKEY='reminders.dashboard.settings.v1';
+  var gToken='', gExp=0, gCals=[], remote=[], gClient=null;
+  var RRULE={daily:'RRULE:FREQ=DAILY',weekdays:'RRULE:FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR',weekly:'RRULE:FREQ=WEEKLY',monthly:'RRULE:FREQ=MONTHLY'};
+
+  function addMins(hm,n){var m=Math.max(0,+hm.slice(0,2)*60+(+hm.slice(3))+n); return pad(Math.floor(m/60))+':'+pad(m%60)}
+  function gValid(){return !!gToken&&Date.now()<gExp}
+  function gStatus(t){document.getElementById('gStatus').textContent=t||''}
+  function gButton(){
+    var b=document.getElementById('btnGoogle');
+    b.textContent=gValid()?'📅 Calendars connected':(gToken?'📅 Reconnect Google Calendar':'📅 Connect Google Calendar'); b.disabled=gValid();
+  }
+  function loadGsi(cb,quiet){
+    if(window.google&&google.accounts&&google.accounts.oauth2) return cb&&cb();
+    if(document.getElementById('gsi')){ if(cb) document.getElementById('gsi').addEventListener('load',cb); return }
+    var s=document.createElement('script'); s.id='gsi'; s.src='https://accounts.google.com/gsi/client'; s.async=true;
+    if(cb) s.onload=cb;
+    s.onerror=function(){ s.remove(); if(!quiet) gStatus('Could not load Google sign-in (blocked by this network or browser?).') };
+    document.head.appendChild(s);
+  }
+  function connectGoogle(){
+    loadGsi(function(){
+      if(!gClient) gClient=google.accounts.oauth2.initTokenClient({client_id:GCLIENT,scope:GSCOPE,
+        callback:function(r){
+          if(r.error){ gStatus('Google sign-in failed: '+(r.error_description||r.error)); return }
+          gToken=r.access_token; gExp=Date.now()+(r.expires_in-60)*1000;
+          try{sessionStorage.setItem(TKEY,JSON.stringify({t:gToken,exp:gExp}))}catch(e){}
+          afterConnect();
+        },
+        error_callback:function(e){ gStatus('Google sign-in was closed or blocked ('+((e&&e.type)||'error')+'). Allow pop-ups for this site and try again.') }});
+      gClient.requestAccessToken();
+    });
+  }
+  function gfetch(path,opts){
+    opts=opts||{}; opts.headers=Object.assign({Authorization:'Bearer '+gToken},opts.headers||{});
+    return fetch(GAPI+path,opts).then(function(r){
+      if(r.status===401){ gExp=0; gButton(); throw new Error('session expired, click Reconnect') }
+      if(!r.ok) return r.text().then(function(t){ var m=''; try{m=JSON.parse(t).error.message}catch(e){} throw new Error(m||('HTTP '+r.status)) });
+      return r.status===204?null:r.json();
+    });
+  }
+  function afterConnect(){
+    gButton(); gStatus('Connected. Loading calendars…');
+    return gfetch('/users/me/calendarList?minAccessRole=reader').then(function(d){
+      gCals=(d.items||[]).map(function(c){return {id:c.id,summary:c.summaryOverride||c.summary||c.id,writable:c.accessRole==='owner'||c.accessRole==='writer'}});
+      showMapping(); showPreview(); return syncEvents();
+    }).then(function(){ gStatus('Calendars up to date at '+nowHM()+'.') })
+      .catch(function(e){ gStatus('Google Calendar error: '+e.message) });
+  }
+  function resolveCal(name){
+    var c=settings.cats.filter(function(x){return x.name===name})[0]; if(!c||!c.cal) return null;
+    var q=c.cal.toLowerCase();
+    return gCals.filter(function(g){return g.id.toLowerCase()===q||g.summary.toLowerCase()===q})[0]
+      || gCals.filter(function(g){return g.summary.toLowerCase().indexOf(q)>-1})[0] || null;
+  }
+  // Timed items in a category that has a (writable) calendar go to that calendar; everything else stays a dashboard to-do.
+  function destFor(b){ if(!gValid()||!b.due||!b.time) return null; var c=resolveCal(b.cat); return c&&c.writable?c:null }
+  function syncEvents(){
+    if(!gValid()) return Promise.resolve();
+    var seen={}, targets=[];
+    settings.cats.forEach(function(c){ var g=resolveCal(c.name); if(g&&!seen[g.id]){seen[g.id]=1; targets.push({g:g,cat:c.name})} });
+    var min=new Date(); min.setHours(0,0,0,0); var max=new Date(min.getTime()+30*86400000);
+    return Promise.all(targets.map(function(t){
+      return gfetch('/calendars/'+encodeURIComponent(t.g.id)+'/events?singleEvents=true&orderBy=startTime&maxResults=250&timeMin='+encodeURIComponent(min.toISOString())+'&timeMax='+encodeURIComponent(max.toISOString()))
+        .then(function(d){ return (d.items||[]).filter(function(e){return e.status!=='cancelled'&&e.start}).map(function(e){
+          var dt=e.start.dateTime?new Date(e.start.dateTime):null;
+          return {id:'g:'+t.g.id+':'+e.id,text:e.summary||'(no title)',cat:t.cat,calName:t.g.summary,due:dt?ymd(dt):e.start.date,
+            time:dt?pad(dt.getHours())+':'+pad(dt.getMinutes()):'',repeat:'none',high:false,done:false,doneAt:0,remote:true};
+        }) })
+        .catch(function(e){ gStatus('Could not read "'+t.g.summary+'": '+e.message); return []; });
+    })).then(function(lists){ remote=[].concat.apply([],lists); render(); checkAlerts(); });
+  }
+  function localISO(d){return ymd(d)+'T'+pad(d.getHours())+':'+pad(d.getMinutes())+':00'}
+  function createEvent(b,cal){
+    var st=new Date(b.due+'T'+b.time+':00'), en=new Date(st.getTime()+3600000), tz=Intl.DateTimeFormat().resolvedOptions().timeZone;
+    var body={summary:b.text,start:{dateTime:localISO(st),timeZone:tz},end:{dateTime:localISO(en),timeZone:tz},
+      reminders:{useDefault:false,overrides:[{method:'popup',minutes:10}]}};
+    if(RRULE[b.repeat]) body.recurrence=[RRULE[b.repeat]];
+    return gfetch('/calendars/'+encodeURIComponent(cal.id)+'/events',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  }
+
+  // ---- Settings (categories, keywords, calendar per category), stored in this browser ----
+  function validSettings(s){
+    return s&&Array.isArray(s.cats)&&s.cats.length>0&&s.cats.length<=6&&s.cats.every(function(c){
+      return c&&typeof c.name==='string'&&c.name.trim()&&(c.words===undefined||Array.isArray(c.words))&&(c.cal===undefined||typeof c.cal==='string')});
+  }
+  function loadSettings(){
+    var st=DEFAULT_SETTINGS;
+    try{ var s=JSON.parse(localStorage.getItem(SKEY)); if(validSettings(s)) st=s }catch(e){}
+    applySettings(st);
+  }
+  function fillSettingsBox(){ document.getElementById('setBox').value=JSON.stringify(settings,null,1) }
+  function showMapping(){
+    document.getElementById('mapInfo').textContent=settings.cats.map(function(c){
+      if(!c.cal) return c.name+' → dashboard only';
+      var g=resolveCal(c.name);
+      return c.name+' → '+(g?g.summary+(g.writable?'':' (read-only)'):(gCals.length?'"'+c.cal+'" not found':c.cal+' (connect to check)'));
+    }).join('   ·   ');
+  }
+  document.getElementById('btnGoogle').addEventListener('click',connectGoogle);
+  document.getElementById('btnSetSave').addEventListener('click',function(){
+    var m=document.getElementById('setMsg');
+    try{ var s=JSON.parse(document.getElementById('setBox').value); if(!validSettings(s)) throw 0;
+      localStorage.setItem(SKEY,JSON.stringify(s)); applySettings(s); catPick=''; fillSettingsBox(); showMapping(); showPreview(); render(); syncEvents();
+      m.textContent='Saved.';
+    }catch(e){ m.textContent='Could not save: check the JSON (each category needs a "name").'; }
+  });
+  document.getElementById('btnSetReset').addEventListener('click',function(){
+    try{localStorage.removeItem(SKEY)}catch(e){}
+    applySettings(DEFAULT_SETTINGS); catPick=''; fillSettingsBox(); showMapping(); showPreview(); render(); syncEvents();
+    document.getElementById('setMsg').textContent='Back to the defaults.';
+  });
+
   function tick(){
     var d=new Date(), h=d.getHours();
     document.getElementById('clock').textContent=pad(h)+':'+pad(d.getMinutes());
     document.getElementById('dateLine').textContent=d.toLocaleDateString(undefined,{weekday:'long',day:'numeric',month:'long',year:'numeric'});
     document.getElementById('greet').textContent=(h<12?'Good morning':h<18?'Good afternoon':'Good evening')+'';
   }
-  load(); loadFired(); tick(); render(); showPreview(); updateNotifyBtn(); checkAlerts();
+  load(); loadFired(); loadSettings(); fillSettingsBox(); tick(); render(); showPreview(); updateNotifyBtn(); checkAlerts();
+  try{ var gt=JSON.parse(sessionStorage.getItem(TKEY)||'null'); if(gt&&gt.t){gToken=gt.t; gExp=gt.exp} }catch(e){}
+  showMapping(); gButton(); loadGsi(null,true);
+  if(gValid()) afterConnect();
   setInterval(function(){tick();render()},60000);
   setInterval(checkAlerts,15000);
-  document.addEventListener('visibilitychange',function(){ if(document.hidden){save()} else {tick();render();checkAlerts()} });
+  setInterval(function(){ if(gValid()) syncEvents(); else gButton() },300000);
+  document.addEventListener('visibilitychange',function(){ if(document.hidden){save()} else {tick();render();checkAlerts();if(gValid()) syncEvents(); else gButton()} });
   window.addEventListener('pagehide',save);
 })();
 </script>
