@@ -205,10 +205,11 @@
     });
   }
   function guessCat(text){
-    var best='', top=0, tie=false;
-    // a multi-word match ("my parents", "mother-in-law") is more specific, so it counts double
-    CATS.forEach(function(c){var n=0; (CATWORDS[c]?(text.match(CATWORDS[c])||[]):[]).forEach(function(w){n+=/[\s-]/.test(w)?2:1});
-      if(n>top){top=n;best=c;tie=false} else if(n&&n===top) tie=true});
+    var best='', top=0, topP=0, tie=false;
+    // a multi-word match ("my parents", "mother-in-law") is more specific, so it counts double;
+    // on a tie, the category with the specific phrase wins ("buy groceries for the kids" -> Family)
+    CATS.forEach(function(c){var n=0, p=0; (CATWORDS[c]?(text.match(CATWORDS[c])||[]):[]).forEach(function(w){if(/[\s-]/.test(w)){n+=2;p++}else n++});
+      if(n>top||(n&&n===top&&p>topP)){top=n;topP=p;best=c;tie=false} else if(n&&n===top&&p===topP) tie=true});
     return tie?'':best;
   }
   var QTYRE='(?:\\d+|a few|few|an?|one|two|three|four|five|six|seven|the)', UNITRE='(?:weeks?|days?|hours?|hrs?|minutes?|mins?)';
