@@ -125,7 +125,7 @@
   <div id="alert" class="alert" role="alertdialog" aria-live="assertive" hidden></div>
 
   <div id="banner" class="banner"></div>
-  <div class="alertbar"><button id="btnGoogle" type="button"></button> <button id="btnNotify" type="button"></button> <button id="btnTest" type="button">Test pop-up</button></div>
+  <div class="alertbar"><button id="btnRefresh" type="button" title="Reload calendar events and to-dos now">↻ Refresh</button> <button id="btnGoogle" type="button"></button> <button id="btnNotify" type="button"></button> <button id="btnTest" type="button">Test pop-up</button></div>
   <div class="note gstat" id="gStatus" aria-live="polite"></div>
   <div class="note gstat" id="sStatus" aria-live="polite"></div>
 
@@ -844,6 +844,12 @@
     }).join('   ·   ');
   }
   document.getElementById('btnGoogle').addEventListener('click',connectGoogle);
+  document.getElementById('btnRefresh').addEventListener('click',function(){
+    var b=this; tick(); render(); checkAlerts();
+    if(!gValid()){ gStatus(gToken?'Google session expired: click Reconnect to refresh calendar events and to-dos.':'Not connected to Google: click Connect Google Calendar to load calendar events and synced to-dos.'); return }
+    b.disabled=true; gStatus('Refreshing…');
+    Promise.all([syncEvents(),syncTodos()]).then(function(){ gStatus('Refreshed at '+nowHM()+'.') }).then(function(){ b.disabled=false },function(){ b.disabled=false });
+  });
   document.getElementById('btnSetSave').addEventListener('click',function(){
     var m=document.getElementById('setMsg');
     try{ var s=JSON.parse(document.getElementById('setBox').value); if(!validSettings(s)) throw 0;
