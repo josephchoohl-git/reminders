@@ -184,7 +184,7 @@
     {name:'School',cal:'',words:['student*','parent*','class','classes','teacher*','principal','counsel*','session*','school','assembly','referral','staff','exam']},
     {name:'Eureka Hope',cal:'Freelance CS Schedule',words:['eureka','hope','invoice','clinic','orton','og','tutor*','learner*','dyslexia','literacy','msl','therapy','lesson plan']},
     {name:'Personal',cal:'primary',words:['dentist','doctor','birthday','gym','groceries','buy','bill','bills','flight','haircut','medicine','meds','church','pick up']},
-    {name:'Family',cal:'RebJo',words:['wife','partner','husband','mother','father','mother-in-law','father-in-law','in-laws','mil','fil','mum','mom','dad','family','kids','anniversary']}
+    {name:'Family',cal:'RebJo',words:['my parents','our parents','my parent*','my in-laws','my mum','my mom','my dad','my mother','my father','my wife','my partner','wife','partner','husband','mother','father','mother-in-law','father-in-law','in-laws','mil','fil','mum','mom','dad','family','kids','anniversary']}
   ]};
   //</defaults>
   var settings=null, CATS=[], CATWORDS={};
@@ -198,7 +198,9 @@
   }
   function guessCat(text){
     var best='', top=0, tie=false;
-    CATS.forEach(function(c){var n=CATWORDS[c]?(text.match(CATWORDS[c])||[]).length:0; if(n>top){top=n;best=c;tie=false} else if(n&&n===top) tie=true});
+    // a multi-word match ("my parents", "mother-in-law") is more specific, so it counts double
+    CATS.forEach(function(c){var n=0; (CATWORDS[c]?(text.match(CATWORDS[c])||[]):[]).forEach(function(w){n+=/[\s-]/.test(w)?2:1});
+      if(n>top){top=n;best=c;tie=false} else if(n&&n===top) tie=true});
     return tie?'':best;
   }
   var DOW=['sun','mon','tue','wed','thu','fri','sat'];
@@ -250,11 +252,12 @@
       else if((r=take(new RegExp('\\b'+MONTHRE+'\\b\\.?\\s+(\\d{1,2})(?:st|nd|rd|th)?\\b(?:,?\\s+(\\d{4}))?','i')))) out.due=mkDate(today,r[3]?+r[3]:0,monOf(r[1]),+r[2]);
       else if((r=take(/\b(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?\b/))) out.due=mkDate(today,r[3]?+r[3]:0,+r[2]-1,+r[1]);
       else {
-        var re=new RegExp('\\b(?:(on|next|this)\\s+)?'+WDRE+'\\b','gi'), m;
+        // optional lead-in: "on", "the", "next/this/following/coming" ("on the following Monday")
+        var re=new RegExp('\\b(?:(on)\\s+)?(?:the\\s+)?(?:(next|this|following|coming)\\s+)?'+WDRE+'\\b','gi'), m;
         while((m=re.exec(s))){
-          if(m[1]||/day$/i.test(m[2])){   // short names like "sat"/"sun" only count after on/next/this
+          if(m[1]||m[2]||/day$/i.test(m[3])){   // short names like "sat"/"sun" only count after on/next/this/etc.
             s=s.slice(0,m.index)+' '+s.slice(m.index+m[0].length);
-            out.due=nextWd(today,dowOf(m[2]),false); break;
+            out.due=nextWd(today,dowOf(m[3]),false); break;
           }
         }
       }
