@@ -19,6 +19,12 @@
   .banner{padding:12px 16px;border-radius:10px;font-weight:600;margin-bottom:14px;background:#e8f3ea;color:var(--ok)}
   .banner.warn{background:var(--warnbg);color:var(--warn)}
   .banner.today{background:var(--todaybg);color:var(--today)}
+  li.editing{display:block;border-left-color:var(--accent)}
+  .editf{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;width:100%}
+  .editf label{font-size:.78rem;color:var(--muted)}
+  .editf label.wide{grid-column:1/-1}
+  .editf input,.editf select{width:100%;padding:7px 9px;border:1px solid var(--line);border-radius:8px;font:inherit;background:#fff;color:var(--ink)}
+  .editbtns{grid-column:1/-1;display:flex;gap:8px}
   .gstat{margin:-8px 0 12px;min-height:1.2em}
   .calmark{width:22px;flex:none;text-align:center;margin-top:1px}
   details{margin-bottom:10px}
@@ -340,9 +346,12 @@
     if(!it.remote){
       if(!it.done){
         btn('Tomorrow','Move to tomorrow',function(){snooze(it.id)});
-        btn('Edit','Edit text',function(){edit(t,it.id)});
+        btn('Edit','Edit title, date, time',function(){editItem(it,li)});
       }
       btn('✕','Delete',function(){del(it.id)});
+    }else if(it.writable){   // calendar events: change/remove only this one date, in Google Calendar itself
+      btn('Edit','Edit this date in Google Calendar',function(){editItem(it,li)});
+      btn('✕','Delete this date from Google Calendar',function(){delRemote(it)});
     }
 
     li.appendChild(cb); li.appendChild(body); li.appendChild(acts);
@@ -360,6 +369,7 @@
   }
 
   function render(){
+    if(editing) return;   // don't wipe an open edit form on the minute refresh
     var today=ymd(new Date()), hm=nowHM(), week=addDays(today,7);
     var open=items.concat(remote).filter(function(i){return !i.done}).sort(cmp);
     var overdue=open.filter(function(i){return i.due&&i.due<today});
@@ -405,14 +415,54 @@
     it.due=addDays(ymd(new Date()),1); save(); render();
   }
   function del(id){ items=items.filter(function(i){return i.id!==id}); save(); render(); }
-  function edit(el,id){
-    el.contentEditable='true'; el.focus();
-    var done=false;
-    function finish(){ if(done) return; done=true; el.contentEditable='false';
-      var v=el.textContent.trim(); var it=items.find(function(i){return i.id===id});
-      if(it&&v) it.text=v; save(); render(); }
-    el.addEventListener('blur',finish,{once:true});
-    el.addEventListener('keydown',function(e){ if(e.key==='Enter'){e.preventDefault();el.blur()} });
+  // Edit form shown in place of the row. Dashboard items change locally; calendar events are PATCHed in Google.
+  var editing=false;
+  function editItem(it,li){
+    editing=true;
+    var f=document.createElement('form'); f.className='editf';
+    function mk(tag,props){var e=document.createElement(tag); for(var k in props) e[k]=props[k]; return e}
+    function field(label,el,wide){var w=document.createElement('label'); if(wide) w.className='wide'; w.appendChild(document.createTextNode(label)); w.appendChild(el); f.appendChild(w); return el}
+    function sel(list,cur){var s=mk('select',{}); if(list.indexOf(cur)<0) list=[cur].concat(list); list.forEach(function(v){var o=mk('option',{value:v,textContent:v}); if(v===cur) o.selected=true; s.appendChild(o)}); return s}
+    var tx=field('Title',mk('input',{type:'text',value:it.text,required:true}),true);
+    var dt=field('Date',mk('input',{type:'date',value:it.due||''}));
+    var tm=field('Time',mk('input',{type:'time',value:it.time||''}));
+    var rp,ct;
+    if(it.remote){ if(it.allDay) tm.disabled=true; }
+    else{
+      rp=field('Repeat',sel(['none','daily','weekdays','weekly','monthly'],it.repeat||'none'));
+      ct=field('Category',sel(CATS,it.cat||CATS[0]));
+    }
+    var row2=mk('div',{className:'editbtns'});
+    var ok=mk('button',{type:'submit',className:'primary',textContent:'Save'}), no=mk('button',{type:'button',textContent:'Cancel'});
+    row2.appendChild(ok); row2.appendChild(no); f.appendChild(row2);
+    no.addEventListener('click',function(){editing=false; render()});
+    f.addEventListener('submit',function(e){
+      e.preventDefault();
+      var title=tx.value.trim()||it.text;
+      if(!it.remote){
+        it.text=title; it.due=dt.value; it.time=tm.value; it.repeat=rp.value; it.cat=ct.value;
+        save(); editing=false; render(); return;
+      }
+      if(!dt.value||!gValid()){ gStatus(gValid()?'Pick a date first.':'Google session expired: click Reconnect, then edit again.'); return }
+      var patch={summary:title}, tz=Intl.DateTimeFormat().resolvedOptions().timeZone;
+      if(it.allDay){ patch.start={date:dt.value}; patch.end={date:addDays(dt.value,it.spanDays||1)}; }
+      else{
+        var t=tm.value||it.time, st=new Date(dt.value+'T'+t+':00'), en=new Date(st.getTime()+(it.durMs||3600000));
+        patch.start={dateTime:localISO(st),timeZone:tz}; patch.end={dateTime:localISO(en),timeZone:tz};
+      }
+      ok.disabled=true; gStatus('Saving to Google Calendar…');
+      gfetch('/calendars/'+encodeURIComponent(it.calId)+'/events/'+encodeURIComponent(it.gev),{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify(patch)})
+        .then(function(){ gStatus('Updated in '+it.calName+'.'); editing=false; return syncEvents(); })
+        .catch(function(err){ ok.disabled=false; gStatus('Could not update the event ('+err.message+').'); });
+    });
+    li.textContent=''; li.className='editing'; li.appendChild(f); tx.focus();
+  }
+  function delRemote(it){
+    if(!confirm('Delete "'+it.text+'" from Google Calendar ('+it.calName+')?\n\nIf it repeats, only this date is removed. Google keeps it in the calendar Trash for 30 days.')) return;
+    if(!gValid()){ gStatus('Google session expired: click Reconnect, then try again.'); return }
+    gfetch('/calendars/'+encodeURIComponent(it.calId)+'/events/'+encodeURIComponent(it.gev),{method:'DELETE'})
+      .then(function(){ gStatus('Deleted from '+it.calName+'.'); remote=remote.filter(function(r){return r.id!==it.id}); render(); return syncEvents(); })
+      .catch(function(err){ gStatus('Could not delete the event ('+err.message+').'); });
   }
 
   function val(id){return document.getElementById(id).value}
@@ -640,8 +690,11 @@
       return gfetch('/calendars/'+encodeURIComponent(t.g.id)+'/events?singleEvents=true&orderBy=startTime&maxResults=250&timeMin='+encodeURIComponent(min.toISOString())+'&timeMax='+encodeURIComponent(max.toISOString()))
         .then(function(d){ return (d.items||[]).filter(function(e){return e.status!=='cancelled'&&e.start}).map(function(e){
           var dt=e.start.dateTime?new Date(e.start.dateTime):null;
+          var en=e.end&&(e.end.dateTime||e.end.date);
           return {id:'g:'+t.g.id+':'+e.id,text:e.summary||'(no title)',cat:t.cat,calName:t.g.summary,due:dt?ymd(dt):e.start.date,
-            time:dt?pad(dt.getHours())+':'+pad(dt.getMinutes()):'',repeat:'none',high:false,done:false,doneAt:0,remote:true};
+            time:dt?pad(dt.getHours())+':'+pad(dt.getMinutes()):'',repeat:'none',high:false,done:false,doneAt:0,remote:true,
+            calId:t.g.id,gev:e.id,writable:t.g.writable,allDay:!dt,
+            durMs:dt&&en?new Date(en)-dt:3600000, spanDays:!dt&&en?Math.max(1,Math.round((parse(en)-parse(e.start.date))/86400000)):1};
         }) })
         .catch(function(e){ gStatus('Could not read "'+t.g.summary+'": '+e.message); return []; });
     })).then(function(lists){ remote=[].concat.apply([],lists); render(); checkAlerts(); });
