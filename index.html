@@ -177,12 +177,14 @@
   //<parser>
   //<defaults>
   // Categories, the words that hint at each one (most matches wins; "*" ends a word, e.g. counsel*),
-  // and the Google calendar each one saves timed items to (a calendar name or id; "" = dashboard only).
+  // and the Google calendar each one saves timed items to (a calendar name or id, "primary" = your own
+  // main calendar; "" = dashboard only).
   // Can be changed in the page under "Settings".
   var DEFAULT_SETTINGS={cats:[
     {name:'School',cal:'',words:['student*','parent*','class','classes','teacher*','principal','counsel*','session*','school','assembly','referral','staff','exam']},
     {name:'Eureka Hope',cal:'Freelance CS Schedule',words:['eureka','hope','invoice','clinic','orton','og','tutor*','learner*','dyslexia','literacy','msl','therapy','lesson plan']},
-    {name:'Personal',cal:'RebJo',words:['mum','mom','dad','home','dentist','doctor','birthday','gym','groceries','buy','bill','bills','anniversary','flight','haircut','medicine','meds','church','pick up','wife','family','kids','husband']}
+    {name:'Personal',cal:'primary',words:['dentist','doctor','birthday','gym','groceries','buy','bill','bills','flight','haircut','medicine','meds','church','pick up']},
+    {name:'Family',cal:'RebJo',words:['wife','partner','husband','mother','father','mother-in-law','father-in-law','in-laws','mil','fil','mum','mom','dad','family','kids','anniversary']}
   ]};
   //</defaults>
   var settings=null, CATS=[], CATWORDS={};
@@ -583,7 +585,7 @@
   function afterConnect(){
     gButton(); gStatus('Connected. Loading calendars…');
     return gfetch('/users/me/calendarList?minAccessRole=reader').then(function(d){
-      gCals=(d.items||[]).map(function(c){return {id:c.id,summary:c.summaryOverride||c.summary||c.id,writable:c.accessRole==='owner'||c.accessRole==='writer'}});
+      gCals=(d.items||[]).map(function(c){return {id:c.id,primary:!!c.primary,summary:c.summaryOverride||c.summary||c.id,writable:c.accessRole==='owner'||c.accessRole==='writer'}});
       showMapping(); showPreview(); return syncEvents();
     }).then(function(){ gStatus('Calendars up to date at '+nowHM()+'.') })
       .catch(function(e){ gStatus('Google Calendar error: '+e.message) });
@@ -591,6 +593,7 @@
   function resolveCal(name){
     var c=settings.cats.filter(function(x){return x.name===name})[0]; if(!c||!c.cal) return null;
     var q=c.cal.toLowerCase();
+    if(q==='primary') return gCals.filter(function(g){return g.primary})[0]||null;   // the signed-in account's own calendar
     return gCals.filter(function(g){return g.id.toLowerCase()===q||g.summary.toLowerCase()===q})[0]
       || gCals.filter(function(g){return g.summary.toLowerCase().indexOf(q)>-1})[0] || null;
   }
