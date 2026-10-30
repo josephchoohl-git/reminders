@@ -13,5 +13,5 @@ time, repeat, category and importance. Timed items pop up when due.
 
 Click "Connect Google Calendar" to sign in with your Google account. Timed reminders for a category that has a
 calendar are created as real calendar events, and events from those calendars are shown in the lists.
-Choose each category's calendar under **Settings** (the `cal` field holds a calendar name).
+Edit categories, keywords and each category's calendar under **Settings** (the `cal` field holds a calendar name).
 Settings and reminders are stored only in your own browser.
