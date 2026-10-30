@@ -19,6 +19,32 @@
   .banner{padding:12px 16px;border-radius:10px;font-weight:600;margin-bottom:14px;background:#e8f3ea;color:var(--ok)}
   .banner.warn{background:var(--warnbg);color:var(--warn)}
   .banner.today{background:var(--todaybg);color:var(--today)}
+  .wrap{max-width:1100px}
+  .cols{display:grid;grid-template-columns:1fr 1fr;gap:24px;align-items:start}
+  .col{min-width:0}
+  .coltitle{font-size:1.05rem;text-transform:none;letter-spacing:0;color:var(--ink);border-bottom:2px solid var(--line);padding-bottom:6px;margin-bottom:12px}
+  .coltitle small{font-weight:400;color:var(--muted);font-size:.8rem}
+  .tabs{display:none;gap:8px;margin-bottom:14px}
+  .tabs button{flex:1;padding:12px 8px;font-size:1rem;border-radius:10px}
+  .tabs button.on{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600}
+  .tabs .n:not(:empty){background:rgba(255,255,255,.28);border-radius:20px;padding:0 8px;margin-left:4px;font-size:.85rem}
+  .tabs button:not(.on) .n:not(:empty){background:var(--todaybg);color:var(--today)}
+  @media(max-width:760px){
+    .wrap{padding:14px 12px 50px}
+    .tabs{display:flex}
+    .cols{grid-template-columns:1fr}
+    .cols[data-tab=cal] #colTodo,.cols[data-tab=todo] #colCal{display:none}
+    .coltitle{display:none}
+    h1{font-size:1.35rem} .clock{font-size:1.5rem}
+    li{flex-wrap:wrap}
+    .acts{width:100%;justify-content:flex-end;gap:8px}
+    .acts button{padding:9px 14px;font-size:.95rem}
+    li input[type=checkbox]{width:28px;height:28px}
+    .editf{grid-template-columns:1fr 1fr}
+    .alertbar button{padding:8px 12px}
+    form.add .row button{padding:0 18px}
+    .banner{font-size:.95rem}
+  }
   li.editing{display:block;border-left-color:var(--accent)}
   .editf{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;width:100%}
   .editf label{font-size:.78rem;color:var(--muted)}
@@ -121,7 +147,14 @@
     </details>
   </form>
 
-  <div id="lists"></div>
+  <div class="tabs" id="tabs" role="tablist">
+    <button type="button" role="tab" data-tab="cal" class="on">📅 Calendar <span class="n" id="nCal"></span></button>
+    <button type="button" role="tab" data-tab="todo">☑ To-do <span class="n" id="nTodo"></span></button>
+  </div>
+  <div class="cols" id="cols" data-tab="cal">
+    <div class="col" id="colCal"><h2 class="coltitle">📅 Calendar <small>everything with a time</small></h2><div id="listCal"></div></div>
+    <div class="col" id="colTodo"><h2 class="coltitle">☑ To-do <small>no set time</small></h2><div id="listTodo"></div></div>
+  </div>
 
   <details>
     <summary>Settings: categories and calendars</summary>
@@ -386,17 +419,27 @@
     else{b.className='banner';b.textContent='Nothing due today. You are clear.'}
     document.title=(overdue.length+td.length?'('+(overdue.length+td.length)+') ':'')+'My Reminders';
 
-    var box=document.getElementById('lists'); box.textContent='';
-    [section('Overdue','overdue',overdue,today,hm),
-     section('Today','today',td,today,hm,'Nothing scheduled for today.'),
-     section('Next 7 days','',soon,today,hm),
-     section('Later','',later,today,hm),
-     section('No date (to-do)','',any,today,hm,'No undated tasks.')
-    ].forEach(function(s){if(s)box.appendChild(s)});
+    // Left column: everything with a time (calendar events + timed dashboard items). Right: everything without.
+    function fill(id,pick,todayMsg,noDateMsg){
+      var box=document.getElementById(id); box.textContent='';
+      var o=overdue.filter(pick), t=td.filter(pick);
+      [section('Overdue','overdue',o,today,hm),
+       section('Today','today',t,today,hm,todayMsg),
+       section('Next 7 days','',soon.filter(pick),today,hm),
+       section('Later','',later.filter(pick),today,hm),
+       section('No date','',any.filter(pick),today,hm,noDateMsg)
+      ].forEach(function(s){if(s)box.appendChild(s)});
+      return {box:box,n:o.length+t.length};
+    }
+    var isCal=function(i){return !!(i.remote||i.time)};
+    var cal=fill('listCal',isCal,'Nothing scheduled for today.');
+    var todo=fill('listTodo',function(i){return !isCal(i)},'Nothing to do today.','No undated tasks.');
+    document.getElementById('nCal').textContent=cal.n||'';
+    document.getElementById('nTodo').textContent=todo.n||'';
 
     if(done.length){
       var d=document.createElement('details'); var sm=document.createElement('summary'); sm.textContent='Recently completed ('+done.length+')'; d.appendChild(sm);
-      var ul=document.createElement('ul'); done.forEach(function(it){ul.appendChild(row(it,today,hm))}); d.appendChild(ul); box.appendChild(d);
+      var ul=document.createElement('ul'); done.forEach(function(it){ul.appendChild(row(it,today,hm))}); d.appendChild(ul); todo.box.appendChild(d);
     }
   }
 
@@ -745,6 +788,16 @@
     try{localStorage.removeItem(SKEY)}catch(e){}
     applySettings(DEFAULT_SETTINGS); catPick=''; fillSettingsBox(); showMapping(); showPreview(); render(); syncEvents();
     document.getElementById('setMsg').textContent='Back to the defaults.';
+  });
+
+  function setHint(){   // shorter typing hint on narrow screens so it isn't cut off
+    document.getElementById('fText').placeholder=window.innerWidth<=760?'e.g. Call mum Fri 3pm':'Type it: "Call parents tomorrow 3pm"  or  "Team meeting every Mon 8:30am !"';
+  }
+  window.addEventListener('resize',setHint); setHint();
+  document.getElementById('tabs').addEventListener('click',function(e){
+    var b=e.target.closest('button[data-tab]'); if(!b) return;
+    document.getElementById('cols').dataset.tab=b.dataset.tab;
+    Array.prototype.forEach.call(this.querySelectorAll('button'),function(x){x.classList.toggle('on',x===b)});
   });
 
   function tick(){
