@@ -160,10 +160,10 @@
 
   //<parser>
   // Words that hint at a category. Edit these lists to suit your own work; most matches wins.
-  var CATS=['School','Eureka Hope','Personal'];
+  var CATS=['Work','Side Project','Personal'];
   var CATWORDS={
-    'School':/\b(student|students|parent|parents|class|classes|teacher|teachers|principal|counsel\w*|session|sessions|school|assembly|referral|staff|exam|cca|form teacher|hod|vp|p[1-6]|sec ?[1-5])\b/gi,
-    'Eureka Hope':/\b(eureka|hope|invoice|clinic|orton|og|tutor\w*|learner|learners|dyslexia|literacy|msl|therapy|lesson plan)\b/gi,
+    'Work':/\b(meeting|report|email|deadline|client|team|project|review|presentation|call|office|boss)\b/gi,
+    'Side Project':/\b(side|hobby|blog|freelance|invoice|workshop|course|study|write|writing)\b/gi,
     'Personal':/\b(mum|mom|dad|home|dentist|doctor|birthday|gym|groceries|buy|bill|bills|family|wife|husband|kids|anniversary|flight|haircut|medicine|meds|church|pick up)\b/gi
   };
   function guessCat(text){
@@ -193,8 +193,8 @@
     function hhmm(h,m){return pad(h)+':'+(m||'00')}
 
     if(take(/!+(?=\s*$)/)) out.high=true;
-    if((r=take(/#(school|eureka(?:\s?hope)?|home|personal)\b/i))){
-      var c=r[1].toLowerCase(); out.cat=c==='school'?'School':c==='eureka'||c.indexOf('eureka')===0?'Eureka Hope':'Personal';
+    if((r=take(/#(work|side|home|personal)\b/i))){
+      var c=r[1].toLowerCase(); out.cat=c==='work'?'Work':c==='side'?'Side Project':'Personal';
     }
 
     // repeat
@@ -363,7 +363,7 @@
   // Merge what was typed with the optional manual fields (manual wins).
   function build(){
     var p=parseReminder(val('fText')), rep=val('fRep')||p.repeat, time=val('fTime')||p.time;
-    var guessed=p.cat||'School';
+    var guessed=p.cat||'Work';
     return {text:p.text,time:time,repeat:rep,cat:catPick||guessed,guessed:guessed,
       high:p.high||document.getElementById('fHigh').checked,due:fillDue(val('fDate')||p.due,time,rep)};
   }
