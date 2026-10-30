@@ -1,0 +1,514 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>My Reminders</title>
+<style>
+  :root{
+    --bg:#f4f6f8; --card:#fff; --ink:#1d2733; --muted:#6b7785; --line:#e2e7ec;
+    --accent:#2f6f8f; --warn:#c0392b; --warnbg:#fdecea; --today:#b9770e; --todaybg:#fff6e0; --ok:#2e7d4f;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+  .wrap{max-width:900px;margin:0 auto;padding:20px 16px 60px}
+  header{display:flex;justify-content:space-between;align-items:flex-end;gap:12px;flex-wrap:wrap;margin-bottom:14px}
+  h1{margin:0;font-size:1.6rem}
+  .date{color:var(--muted);font-size:1rem}
+  .clock{font-size:2rem;font-weight:600;font-variant-numeric:tabular-nums;color:var(--accent)}
+  .banner{padding:12px 16px;border-radius:10px;font-weight:600;margin-bottom:14px;background:#e8f3ea;color:var(--ok)}
+  .banner.warn{background:var(--warnbg);color:var(--warn)}
+  .banner.today{background:var(--todaybg);color:var(--today)}
+  .alertbar{display:flex;gap:8px;margin:-4px 0 14px}
+  .alertbar button{font-size:.82rem;padding:4px 10px;color:var(--muted)}
+  .alert{position:fixed;top:16px;left:50%;transform:translateX(-50%);width:min(560px,92vw);z-index:50;background:#fff;border:2px solid var(--today);border-radius:12px;padding:14px 16px;box-shadow:0 10px 40px rgba(0,0,0,.28)}
+  .alert[hidden]{display:none}
+  .alert h3{margin:0 0 8px;color:var(--today)}
+  .arow{display:flex;gap:8px;align-items:center;padding:6px 0;border-top:1px solid var(--line)}
+  .arow .atext{flex:1;font-size:1.05rem;word-wrap:break-word}
+  .aclose{margin-top:8px;width:100%}
+  form.add{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px;margin-bottom:20px}
+  form.add .row{display:flex;gap:10px}
+  form.add input,form.add select{width:100%;padding:9px 10px;border:1px solid var(--line);border-radius:8px;font:inherit;background:#fff}
+  form.add .txt{font-size:1.1rem;padding:11px 12px}
+  form.add .row button{flex:none;padding:0 22px}
+  form.add label{font-size:.78rem;color:var(--muted);display:block;margin-bottom:2px}
+  .cats{display:flex;gap:8px;align-items:center;margin-top:10px;flex-wrap:wrap}
+  .cats button{border-radius:20px;padding:4px 14px;font-size:.88rem}
+  .cats button.auto{border:1px dashed var(--accent);color:var(--accent)}
+  .cats button.on{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600}
+  .cats small{color:var(--muted);font-size:.78rem}
+  .preview{min-height:1.6em;margin:8px 2px 0;font-size:.9rem;color:var(--muted)}
+  .preview b{color:var(--ink)}
+  .preview .chip{background:var(--bg);border-radius:6px;padding:1px 8px;margin-left:6px;color:var(--accent);font-weight:600;white-space:nowrap}
+  details.manual{margin-top:6px}
+  details.manual summary{font-size:.85rem;margin:0;cursor:pointer;color:var(--muted)}
+  .mgrid{display:grid;gap:10px;grid-template-columns:repeat(5,1fr);margin-top:10px}
+  .hi{display:flex;align-items:center;gap:6px;padding-top:18px}
+  .hi input{width:auto}
+  button{font:inherit;cursor:pointer;border-radius:8px;border:1px solid var(--line);background:#fff;padding:7px 12px}
+  button.primary{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600}
+  button:hover{filter:brightness(.96)}
+  section{margin-bottom:22px}
+  section h2{font-size:1rem;margin:0 0 8px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);display:flex;gap:8px;align-items:center}
+  section h2 .n{background:var(--line);color:var(--ink);border-radius:20px;padding:0 9px;font-size:.8rem}
+  section.overdue h2{color:var(--warn)} section.overdue h2 .n{background:var(--warnbg);color:var(--warn)}
+  section.today h2{color:var(--today)} section.today h2 .n{background:var(--todaybg);color:var(--today)}
+  ul{list-style:none;margin:0;padding:0;display:grid;gap:8px}
+  li{background:var(--card);border:1px solid var(--line);border-left:5px solid var(--line);border-radius:10px;padding:10px 12px;display:flex;gap:10px;align-items:flex-start}
+  section.overdue li{border-left-color:var(--warn)} section.today li{border-left-color:var(--today)}
+  li.high .t::before{content:"★ ";color:var(--today)}
+  li.due-now{background:var(--todaybg);animation:pulse 2s ease-in-out infinite}
+  @keyframes pulse{50%{box-shadow:0 0 0 3px rgba(185,119,14,.35)}}
+  li input[type=checkbox]{width:22px;height:22px;margin-top:2px;flex:none;cursor:pointer}
+  .body{flex:1;min-width:0}
+  .t{font-size:1.05rem;word-wrap:break-word;outline:none}
+  .t[contenteditable=true]{background:#fffbe6;border-radius:4px;padding:0 4px}
+  .meta{font-size:.82rem;color:var(--muted);display:flex;gap:10px;flex-wrap:wrap;margin-top:2px}
+  .tag{background:var(--bg);border-radius:6px;padding:0 7px}
+  .acts{display:flex;gap:4px;flex:none}
+  .acts button{padding:3px 8px;font-size:.85rem}
+  li.done .t{text-decoration:line-through;color:var(--muted)}
+  .empty{color:var(--muted);font-style:italic;padding:4px 2px}
+  details summary{cursor:pointer;color:var(--muted);margin-bottom:8px}
+  .tools{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+  textarea{width:100%;min-height:140px;font:13px/1.4 ui-monospace,Consolas,monospace;padding:8px;border:1px solid var(--line);border-radius:8px}
+  .note{font-size:.82rem;color:var(--muted);margin-top:6px}
+  @media(max-width:640px){.mgrid{grid-template-columns:1fr 1fr}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <h1 id="greet">My Reminders</h1>
+      <div class="date" id="dateLine"></div>
+    </div>
+    <div class="clock" id="clock"></div>
+  </header>
+
+  <div id="alert" class="alert" role="alertdialog" aria-live="assertive" hidden></div>
+
+  <div id="banner" class="banner"></div>
+  <div class="alertbar"><button id="btnNotify" type="button"></button> <button id="btnTest" type="button">Test pop-up</button></div>
+
+  <form class="add" id="addForm" autocomplete="off">
+    <div class="row">
+      <input class="txt" id="fText" placeholder='Type it: "Call parents tomorrow 3pm"  or  "Team meeting every Mon 8:30am !"' required autofocus>
+      <button class="primary" type="submit">Add</button>
+    </div>
+    <div class="cats" id="cats"></div>
+    <div class="preview" id="preview"></div>
+    <details class="manual">
+      <summary>Set manually (optional, overrides what you typed)</summary>
+      <div class="mgrid">
+        <div><label for="fDate">Date</label><input type="date" id="fDate"></div>
+        <div><label for="fTime">Time</label><input type="time" id="fTime"></div>
+        <div><label for="fRep">Repeat</label>
+          <select id="fRep"><option value="">Auto</option><option value="none">No repeat</option><option value="daily">Daily</option><option value="weekdays">Weekdays</option><option value="weekly">Weekly</option><option value="monthly">Monthly</option></select></div>
+        <label class="hi"><input type="checkbox" id="fHigh"> Important</label>
+      </div>
+    </details>
+  </form>
+
+  <div id="lists"></div>
+
+  <details>
+    <summary>Backup / move data between home and school</summary>
+    <textarea id="io" placeholder="Export puts your data here. To import, paste exported text here and click Import."></textarea>
+    <div class="tools">
+      <button id="btnExport">Export (copy this text)</button>
+      <button id="btnImport">Import (replaces current list)</button>
+      <button id="btnClearDone">Clear completed</button>
+    </div>
+    <div class="note">Data is saved only in this browser on this device. Use Export at home, then Import at school (e.g. email the text to yourself).
+    Do not put client names or identifying details here, especially on a government laptop.</div>
+    <div class="note" id="storeWarn"></div>
+  </details>
+</div>
+
+<script>
+(function(){
+  var KEY='reminders.dashboard.v1';
+  var items=[]; var memOnly=false;
+
+  function load(){
+    try{ var s=localStorage.getItem(KEY); items=s?JSON.parse(s):[]; if(!Array.isArray(items)) items=[]; }
+    catch(e){ memOnly=true; items=[]; }
+  }
+  function save(){
+    try{ localStorage.setItem(KEY,JSON.stringify(items)); }
+    catch(e){ memOnly=true; }
+    document.getElementById('storeWarn').textContent = memOnly ? 'Warning: this browser blocked saving. Changes will be lost when you close the page. Use Export to keep them.' : '';
+  }
+
+  function pad(n){return n<10?'0'+n:''+n}
+  function ymd(d){return d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate())}
+  function parse(s){var p=s.split('-');return new Date(+p[0],+p[1]-1,+p[2])}
+  function addDays(s,n){var d=parse(s);d.setDate(d.getDate()+n);return ymd(d)}
+  function nextDue(s,rep){
+    var d=parse(s);
+    if(rep==='daily') d.setDate(d.getDate()+1);
+    else if(rep==='weekdays'){do{d.setDate(d.getDate()+1)}while(d.getDay()===0||d.getDay()===6)}
+    else if(rep==='weekly') d.setDate(d.getDate()+7);
+    else if(rep==='monthly') d.setMonth(d.getMonth()+1);
+    return ymd(d);
+  }
+  function nowHM(){var d=new Date();return pad(d.getHours())+':'+pad(d.getMinutes())}
+  function fmtDate(s){return parse(s).toLocaleDateString(undefined,{weekday:'short',day:'numeric',month:'short'})}
+  function uid(){return Date.now().toString(36)+Math.random().toString(36).slice(2,6)}
+
+  //<parser>
+  // Words that hint at a category. Edit these lists to suit your own work; most matches wins.
+  var CATS=['School','Eureka Hope','Personal'];
+  var CATWORDS={
+    'School':/\b(student|students|parent|parents|class|classes|teacher|teachers|principal|counsel\w*|session|sessions|school|assembly|referral|staff|exam|cca|form teacher|hod|vp|p[1-6]|sec ?[1-5])\b/gi,
+    'Eureka Hope':/\b(eureka|hope|invoice|clinic|orton|og|tutor\w*|learner|learners|dyslexia|literacy|msl|therapy|lesson plan)\b/gi,
+    'Personal':/\b(mum|mom|dad|home|dentist|doctor|birthday|gym|groceries|buy|bill|bills|family|wife|husband|kids|anniversary|flight|haircut|medicine|meds|church|pick up)\b/gi
+  };
+  function guessCat(text){
+    var best='', top=0, tie=false;
+    CATS.forEach(function(c){var n=(text.match(CATWORDS[c])||[]).length; if(n>top){top=n;best=c;tie=false} else if(n&&n===top) tie=true});
+    return tie?'':best;
+  }
+  var DOW=['sun','mon','tue','wed','thu','fri','sat'];
+  var MONTHRE='(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?|sept?(?:ember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)';
+  var WDRE='(monday|tuesday|wednesday|thursday|friday|saturday|sunday|mon|tues?|wed|thu(?:rs?)?|fri|sat|sun)';
+  function dowOf(w){return DOW.indexOf(w.toLowerCase().slice(0,3))}
+  function monOf(w){return ['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'].indexOf(w.toLowerCase().slice(0,3))}
+  function nextWd(today,wd,inclToday){var diff=(wd-parse(today).getDay()+7)%7; if(diff===0&&!inclToday) diff=7; return addDays(today,diff)}
+  function mkDate(today,y,mo,d){
+    var now=parse(today), yy=y||now.getFullYear();
+    if(yy<100) yy+=2000;
+    var dt=new Date(yy,mo,d);
+    if(dt.getMonth()!==mo||dt.getDate()!==d) return '';
+    if(!y&&ymd(dt)<today) dt=new Date(yy+1,mo,d);
+    return ymd(dt);
+  }
+  // Turns free text like "call mum tomorrow 3pm !" into {text,due,time,repeat,cat,high}.
+  function parseReminder(raw,now){
+    now=now||new Date();
+    var today=ymd(now), s=' '+raw+' ', out={text:'',due:'',time:'',repeat:'none',cat:'',high:false}, r;
+    function take(re){var m=re.exec(s); if(m) s=s.slice(0,m.index)+' '+s.slice(m.index+m[0].length); return m}
+    function hhmm(h,m){return pad(h)+':'+(m||'00')}
+
+    if(take(/!+(?=\s*$)/)) out.high=true;
+    if((r=take(/#(school|eureka(?:\s?hope)?|home|personal)\b/i))){
+      var c=r[1].toLowerCase(); out.cat=c==='school'?'School':c==='eureka'||c.indexOf('eureka')===0?'Eureka Hope':'Personal';
+    }
+
+    // repeat
+    if((r=take(/\bevery\s+(day|weekday|week|month)\b/i))){out.repeat={day:'daily',weekday:'weekdays',week:'weekly',month:'monthly'}[r[1].toLowerCase()]}
+    else if((r=take(/\b(daily|weekdays|weekly|monthly)\b/i))){out.repeat=r[1].toLowerCase()}
+    else if((r=take(new RegExp('\\bevery\\s+'+WDRE+'\\b','i')))){out.repeat='weekly'; out.due=nextWd(today,dowOf(r[1]),true)}
+
+    // date
+    if(!out.due){
+      if((r=take(/\bday after tomorrow\b/i))) out.due=addDays(today,2);
+      else if((r=take(/\b(?:tomorrow|tmr|tmrw)\b/i))) out.due=addDays(today,1);
+      else if((r=take(/\b(?:today|tonight)\b/i))) out.due=today;
+      else if((r=take(/\bin\s+(\d{1,3})\s+(day|week|month)s?\b/i))){
+        var n=+r[1], u=r[2].toLowerCase();
+        if(u==='month'){var d=parse(today); d.setMonth(d.getMonth()+n); out.due=ymd(d)} else out.due=addDays(today,n*(u==='week'?7:1));
+      }
+      else if((r=take(/\bnext\s+week\b/i))) out.due=nextWd(today,1,false);
+      else if((r=take(/\bnext\s+month\b/i))){var d2=parse(today); d2.setMonth(d2.getMonth()+1); out.due=ymd(d2)}
+      else if((r=take(/\b(\d{4})-(\d{2})-(\d{2})\b/))) out.due=mkDate(today,+r[1],+r[2]-1,+r[3]);
+      else if((r=take(new RegExp('\\b(\\d{1,2})(?:st|nd|rd|th)?\\s+'+MONTHRE+'\\b\\.?(?:\\s+(\\d{4}))?','i')))) out.due=mkDate(today,r[3]?+r[3]:0,monOf(r[2]),+r[1]);
+      else if((r=take(new RegExp('\\b'+MONTHRE+'\\b\\.?\\s+(\\d{1,2})(?:st|nd|rd|th)?\\b(?:,?\\s+(\\d{4}))?','i')))) out.due=mkDate(today,r[3]?+r[3]:0,monOf(r[1]),+r[2]);
+      else if((r=take(/\b(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?\b/))) out.due=mkDate(today,r[3]?+r[3]:0,+r[2]-1,+r[1]);
+      else {
+        var re=new RegExp('\\b(?:(on|next|this)\\s+)?'+WDRE+'\\b','gi'), m;
+        while((m=re.exec(s))){
+          if(m[1]||/day$/i.test(m[2])){   // short names like "sat"/"sun" only count after on/next/this
+            s=s.slice(0,m.index)+' '+s.slice(m.index+m[0].length);
+            out.due=nextWd(today,dowOf(m[2]),false); break;
+          }
+        }
+      }
+    }
+
+    // time
+    if((r=take(/(?:\b(?:at|by)\s+|@\s*)?\b(1[0-2]|0?[1-9])(?::([0-5]\d))?\s*(am|pm)\b/i))){
+      var h=+r[1]%12; if(r[3].toLowerCase()==='pm') h+=12; out.time=hhmm(h,r[2]);
+    }
+    else if((r=take(/(?:\b(?:at|by)\s+|@\s*)?\b([01]?\d|2[0-3]):([0-5]\d)\b/))) out.time=hhmm(+r[1],r[2]);
+    else if((r=take(/\b(?:at\s+)?(noon|midday)\b/i))) out.time='12:00';
+    else if((r=take(/(?:\b(?:at|by)\s+|@\s*)(1[0-2]|0?[1-9])\b(?!\s*(?:st|nd|rd|th|\/|:))/i))){
+      var b=+r[1]; out.time=hhmm(b<=6?b+12:b,'00');   // "at 3" -> 15:00, "at 9" -> 09:00
+    }
+
+    s=s.replace(/\s+/g,' ').trim().replace(/^(?:remind me to|reminder:?|todo:?)\s+/i,'');
+    var prev; do{prev=s; s=s.replace(/\s+(?:on|at|by|for|every|next|this|from)$/i,'').replace(/[\s,;:-]+$/,'')}while(s!==prev);
+    out.text=s||raw.trim();
+    if(!out.cat) out.cat=guessCat(out.text);   // may stay '' when nothing matches
+    return out;
+  }
+  // A time with no date means "the next time it's that o'clock"; a repeat with no date starts today.
+  function fillDue(due,time,repeat,now){
+    now=now||new Date();
+    if(due||(!time&&repeat==='none')) return due;
+    var today=ymd(now), d=(time&&time<=pad(now.getHours())+':'+pad(now.getMinutes()))?addDays(today,1):today;
+    while(repeat==='weekdays'&&(parse(d).getDay()%6===0)) d=addDays(d,1);
+    return d;
+  }
+  //</parser>
+
+  function cmp(a,b){
+    if((a.due||'9999')!==(b.due||'9999')) return (a.due||'9999')<(b.due||'9999')?-1:1;
+    if((a.time||'99:99')!==(b.time||'99:99')) return (a.time||'99:99')<(b.time||'99:99')?-1:1;
+    if(a.high!==b.high) return a.high?-1:1;
+    return 0;
+  }
+
+  function row(it,today,hm){
+    var li=document.createElement('li'); li.dataset.id=it.id;
+    if(it.high) li.classList.add('high');
+    if(it.done) li.classList.add('done');
+    if(!it.done && it.due===today && it.time && it.time<=hm) li.classList.add('due-now');
+
+    var cb=document.createElement('input'); cb.type='checkbox'; cb.checked=it.done; cb.title='Mark done';
+    cb.addEventListener('change',function(){toggle(it.id)});
+
+    var body=document.createElement('div'); body.className='body';
+    var t=document.createElement('div'); t.className='t'; t.textContent=it.text;
+    var meta=document.createElement('div'); meta.className='meta';
+    var bits=[];
+    if(it.due) bits.push((it.due===today?'Today':fmtDate(it.due))+(it.time?' '+it.time:''));
+    else if(it.time) bits.push(it.time);
+    if(it.repeat&&it.repeat!=='none') bits.push('repeats '+it.repeat);
+    bits.forEach(function(b){var s=document.createElement('span');s.textContent=b;meta.appendChild(s)});
+    var tag=document.createElement('span'); tag.className='tag'; tag.textContent=it.cat||'General'; meta.appendChild(tag);
+    body.appendChild(t); body.appendChild(meta);
+
+    var acts=document.createElement('div'); acts.className='acts';
+    function btn(label,title,fn){var b=document.createElement('button');b.textContent=label;b.title=title;b.type='button';b.addEventListener('click',fn);acts.appendChild(b)}
+    if(!it.done){
+      btn('Tomorrow','Move to tomorrow',function(){snooze(it.id)});
+      btn('Edit','Edit text',function(){edit(t,it.id)});
+    }
+    btn('✕','Delete',function(){del(it.id)});
+
+    li.appendChild(cb); li.appendChild(body); li.appendChild(acts);
+    return li;
+  }
+
+  function section(title,cls,list,today,hm,emptyMsg){
+    var s=document.createElement('section'); if(cls) s.className=cls;
+    var h=document.createElement('h2'); h.textContent=title;
+    var n=document.createElement('span'); n.className='n'; n.textContent=list.length; h.appendChild(n);
+    s.appendChild(h);
+    if(!list.length){ if(emptyMsg){var e=document.createElement('div');e.className='empty';e.textContent=emptyMsg;s.appendChild(e)} else return null; }
+    else{var ul=document.createElement('ul'); list.forEach(function(it){ul.appendChild(row(it,today,hm))}); s.appendChild(ul);}
+    return s;
+  }
+
+  function render(){
+    var today=ymd(new Date()), hm=nowHM(), week=addDays(today,7);
+    var open=items.filter(function(i){return !i.done}).sort(cmp);
+    var overdue=open.filter(function(i){return i.due&&i.due<today});
+    var td=open.filter(function(i){return i.due===today});
+    var soon=open.filter(function(i){return i.due>today&&i.due<=week});
+    var later=open.filter(function(i){return i.due>week});
+    var any=open.filter(function(i){return !i.due});
+    var done=items.filter(function(i){return i.done}).sort(function(a,b){return (b.doneAt||0)-(a.doneAt||0)}).slice(0,15);
+
+    var b=document.getElementById('banner');
+    if(overdue.length){b.className='banner warn';b.textContent=overdue.length+' overdue · '+td.length+' due today'}
+    else if(td.length){b.className='banner today';b.textContent=td.length+' due today'}
+    else{b.className='banner';b.textContent='Nothing due today. You are clear.'}
+    document.title=(overdue.length+td.length?'('+(overdue.length+td.length)+') ':'')+'My Reminders';
+
+    var box=document.getElementById('lists'); box.textContent='';
+    [section('Overdue','overdue',overdue,today,hm),
+     section('Today','today',td,today,hm,'Nothing scheduled for today.'),
+     section('Next 7 days','',soon,today,hm),
+     section('Later','',later,today,hm),
+     section('No date (to-do)','',any,today,hm,'No undated tasks.')
+    ].forEach(function(s){if(s)box.appendChild(s)});
+
+    if(done.length){
+      var d=document.createElement('details'); var sm=document.createElement('summary'); sm.textContent='Recently completed ('+done.length+')'; d.appendChild(sm);
+      var ul=document.createElement('ul'); done.forEach(function(it){ul.appendChild(row(it,today,hm))}); d.appendChild(ul); box.appendChild(d);
+    }
+  }
+
+  function toggle(id){
+    var it=items.find(function(i){return i.id===id}); if(!it) return;
+    if(!it.done && it.repeat && it.repeat!=='none' && it.due){
+      // recurring: log a completed copy, advance the original to next date
+      items.push({id:uid(),text:it.text,cat:it.cat,due:it.due,time:it.time,repeat:'none',high:it.high,done:true,doneAt:Date.now()});
+      var n=nextDue(it.due,it.repeat), today=ymd(new Date());
+      while(n<=today) n=nextDue(n,it.repeat);
+      it.due=n;
+    } else { it.done=!it.done; it.doneAt=it.done?Date.now():0; }
+    save(); render();
+  }
+  function snooze(id){
+    var it=items.find(function(i){return i.id===id}); if(!it) return;
+    it.due=addDays(ymd(new Date()),1); save(); render();
+  }
+  function del(id){ items=items.filter(function(i){return i.id!==id}); save(); render(); }
+  function edit(el,id){
+    el.contentEditable='true'; el.focus();
+    var done=false;
+    function finish(){ if(done) return; done=true; el.contentEditable='false';
+      var v=el.textContent.trim(); var it=items.find(function(i){return i.id===id});
+      if(it&&v) it.text=v; save(); render(); }
+    el.addEventListener('blur',finish,{once:true});
+    el.addEventListener('keydown',function(e){ if(e.key==='Enter'){e.preventDefault();el.blur()} });
+  }
+
+  function val(id){return document.getElementById(id).value}
+  // Merge what was typed with the optional manual fields (manual wins).
+  function build(){
+    var p=parseReminder(val('fText')), rep=val('fRep')||p.repeat, time=val('fTime')||p.time;
+    var guessed=p.cat||'School';
+    return {text:p.text,time:time,repeat:rep,cat:catPick||guessed,guessed:guessed,
+      high:p.high||document.getElementById('fHigh').checked,due:fillDue(val('fDate')||p.due,time,rep)};
+  }
+  var catPick='';   // category chosen by clicking a chip; '' = automatic
+  function showCats(b){
+    var box=document.getElementById('cats'); box.textContent='';
+    CATS.forEach(function(c){
+      var btn=document.createElement('button'); btn.type='button'; btn.textContent=c;
+      if(c===b.cat) btn.className=catPick?'on':'on auto';
+      btn.addEventListener('click',function(){catPick=(catPick===c)?'':c; showPreview(); document.getElementById('fText').focus()});
+      box.appendChild(btn);
+    });
+    var hint=document.createElement('small'); hint.textContent=catPick?'chosen by you':(val('fText').trim()?'guessed from your words, click to change':'auto-picked from what you type'); box.appendChild(hint);
+  }
+  function showPreview(){
+    var b=build(); showCats(b);
+    var box=document.getElementById('preview'); box.textContent='';
+    if(!val('fText').trim()) return;
+    var today=ymd(new Date()), parts=[];
+    if(b.due) parts.push((b.due===today?'Today':b.due===addDays(today,1)?'Tomorrow':fmtDate(b.due))+(b.time?' '+b.time:''));
+    else parts.push('No date (to-do list)');
+    if(b.repeat!=='none') parts.push('repeats '+b.repeat);
+    parts.push(b.cat); if(b.high) parts.push('★ important');
+    var t=document.createElement('b'); t.textContent=b.text; box.appendChild(t);
+    parts.forEach(function(x){var c=document.createElement('span'); c.className='chip'; c.textContent=x; box.appendChild(c)});
+  }
+  document.getElementById('addForm').addEventListener('input',showPreview);
+  document.getElementById('addForm').addEventListener('submit',function(e){
+    e.preventDefault();
+    if(!val('fText').trim()) return;
+    var b=build();
+    items.push({id:uid(),text:b.text,cat:b.cat,due:b.due,time:b.time,repeat:b.repeat,high:b.high,done:false,doneAt:0});
+    save();
+    this.reset(); catPick=''; showPreview();
+    document.getElementById('fText').focus(); render();
+  });
+
+  var io=document.getElementById('io');
+  document.getElementById('btnExport').addEventListener('click',function(){
+    io.value=JSON.stringify(items); io.focus(); io.select();
+    try{document.execCommand('copy')}catch(e){}
+  });
+  document.getElementById('btnImport').addEventListener('click',function(){
+    try{ var d=JSON.parse(io.value);
+      if(!Array.isArray(d)) throw 0;
+      items=d.filter(function(x){return x&&typeof x.text==='string'}).map(function(x){
+        return {id:x.id||uid(),text:x.text,cat:x.cat||'General',due:x.due||'',time:x.time||'',repeat:x.repeat||'none',high:!!x.high,done:!!x.done,doneAt:x.doneAt||0}});
+      save(); render(); io.value='Imported '+items.length+' items.';
+    }catch(e){ io.value='Could not import: the text is not valid exported data.'; }
+  });
+  document.getElementById('btnClearDone').addEventListener('click',function(){
+    items=items.filter(function(i){return !i.done}); save(); render();
+  });
+
+  // ---- Timed pop-up alerts ----
+  // When a timed item reaches its time: in-page pop-up, flashing tab title, a beep (if the page has
+  // had a click/keypress), and a desktop notification if the browser allows it. Each time fires once.
+  var FKEY='reminders.dashboard.fired.v1', fired={}, alertItems=[], audioCtx=null, flashTimer=null;
+  function loadFired(){try{fired=JSON.parse(localStorage.getItem(FKEY)||'{}')||{}}catch(e){fired={}}}
+  function saveFired(){
+    try{
+      var k=Object.keys(fired).sort(); if(k.length>300) k.slice(0,k.length-300).forEach(function(x){delete fired[x]});
+      localStorage.setItem(FKEY,JSON.stringify(fired));
+    }catch(e){}
+  }
+  function unlockAudio(){
+    try{ if(!audioCtx) audioCtx=new (window.AudioContext||window.webkitAudioContext)(); if(audioCtx.state==='suspended') audioCtx.resume(); }catch(e){}
+  }
+  function beep(){
+    try{ if(!audioCtx||audioCtx.state!=='running') return;
+      var o=audioCtx.createOscillator(), g=audioCtx.createGain(); o.frequency.value=880; g.gain.value=.15;
+      o.connect(g); g.connect(audioCtx.destination); o.start(); o.stop(audioCtx.currentTime+.3);
+    }catch(e){}
+  }
+  document.addEventListener('click',unlockAudio); document.addEventListener('keydown',unlockAudio);
+
+  function startFlash(){
+    if(flashTimer) return; var on=false;
+    flashTimer=setInterval(function(){on=!on; document.title=on?'🔔 REMINDER DUE':'⏰ '+(alertItems.length)+' reminder'+(alertItems.length>1?'s':'')},1000);
+  }
+  function stopFlash(){ if(flashTimer){clearInterval(flashTimer); flashTimer=null} render(); }
+  function closeAlert(){ alertItems=[]; renderAlert(); stopFlash(); }
+  function snoozeBy(id,mins){
+    var it=items.find(function(i){return i.id===id}); if(!it) return;
+    var d=new Date(Date.now()+mins*60000); it.due=ymd(d); it.time=pad(d.getHours())+':'+pad(d.getMinutes()); save();
+  }
+  function dropAlert(id){ alertItems=alertItems.filter(function(i){return i.id!==id}); if(!alertItems.length) closeAlert(); else renderAlert(); }
+
+  function renderAlert(){
+    var box=document.getElementById('alert'); box.textContent='';
+    if(!alertItems.length){box.hidden=true; return}
+    box.hidden=false;
+    var h=document.createElement('h3'); h.textContent='🔔 Reminder'+(alertItems.length>1?'s':''); box.appendChild(h);
+    alertItems.forEach(function(it){
+      var r=document.createElement('div'); r.className='arow';
+      var t=document.createElement('div'); t.className='atext'; t.textContent=(it.time?it.time+'  ':'')+it.text; r.appendChild(t);
+      function b(label,fn,cls){var x=document.createElement('button'); x.type='button'; x.textContent=label; if(cls) x.className=cls; x.addEventListener('click',fn); r.appendChild(x)}
+      b('Done',function(){ if(it.id!=='test') toggle(it.id); dropAlert(it.id) },'primary');
+      b('+10 min',function(){ if(it.id!=='test'){snoozeBy(it.id,10); render()} dropAlert(it.id) });
+      box.appendChild(r);
+    });
+    var c=document.createElement('button'); c.type='button'; c.className='aclose'; c.textContent='Dismiss'; c.addEventListener('click',closeAlert); box.appendChild(c);
+  }
+  function showAlert(list){
+    list.forEach(function(it){ if(!alertItems.some(function(a){return a.id===it.id})) alertItems.push(it) });
+    renderAlert(); startFlash(); unlockAudio(); beep();
+    if('Notification' in window && Notification.permission==='granted'){
+      try{ new Notification('Reminder',{body:list.map(function(i){return (i.time?i.time+' ':'')+i.text}).join('\n'),tag:'reminders'}) }catch(e){}
+    }
+  }
+  function checkAlerts(){
+    var today=ymd(new Date()), hm=nowHM(), fresh=[];
+    items.forEach(function(it){
+      if(it.done||it.due!==today||!it.time||it.time>hm) return;
+      var k=it.due+'T'+it.time+'|'+it.id; if(fired[k]) return;
+      fired[k]=1; fresh.push(it);
+    });
+    if(fresh.length){ saveFired(); showAlert(fresh); }
+  }
+  function updateNotifyBtn(){
+    var b=document.getElementById('btnNotify');
+    if(!('Notification' in window)){ b.hidden=true; return }
+    if(Notification.permission==='granted'){ b.textContent='🔔 Desktop pop-ups: on'; b.disabled=true }
+    else if(Notification.permission==='denied'){ b.textContent='Desktop pop-ups blocked in browser settings'; b.disabled=true }
+    else b.textContent='🔔 Turn on desktop pop-ups';
+  }
+  document.getElementById('btnNotify').addEventListener('click',function(){
+    try{ var p=Notification.requestPermission(); if(p&&p.then) p.then(updateNotifyBtn); else updateNotifyBtn(); }catch(e){}
+  });
+  document.getElementById('btnTest').addEventListener('click',function(){
+    showAlert([{id:'test',text:'This is a test reminder',time:nowHM()}]);
+  });
+
+  function tick(){
+    var d=new Date(), h=d.getHours();
+    document.getElementById('clock').textContent=pad(h)+':'+pad(d.getMinutes());
+    document.getElementById('dateLine').textContent=d.toLocaleDateString(undefined,{weekday:'long',day:'numeric',month:'long',year:'numeric'});
+    document.getElementById('greet').textContent=(h<12?'Good morning':h<18?'Good afternoon':'Good evening')+'';
+  }
+  load(); loadFired(); tick(); render(); showPreview(); updateNotifyBtn(); checkAlerts();
+  setInterval(function(){tick();render()},60000);
+  setInterval(checkAlerts,15000);
+  document.addEventListener('visibilitychange',function(){ if(document.hidden){save()} else {tick();render();checkAlerts()} });
+  window.addEventListener('pagehide',save);
+})();
+</script>
+</body>
+</html>
