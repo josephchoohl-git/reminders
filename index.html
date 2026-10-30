@@ -127,6 +127,7 @@
   <div id="banner" class="banner"></div>
   <div class="alertbar"><button id="btnGoogle" type="button"></button> <button id="btnNotify" type="button"></button> <button id="btnTest" type="button">Test pop-up</button></div>
   <div class="note gstat" id="gStatus" aria-live="polite"></div>
+  <div class="note gstat" id="sStatus" aria-live="polite"></div>
 
   <form class="add" id="addForm" autocomplete="off">
     <div class="row">
@@ -187,13 +188,27 @@
   var KEY='reminders.dashboard.v1';
   var items=[]; var memOnly=false;
 
+  // sync bookkeeping: every item carries `upd` (last changed); deleted ids are remembered in `tomb` so a delete
+  // on one device removes the item on the others instead of being undone by the merge.
+  var SYNCKEY='reminders.dashboard.sync.v1', sig={}, tomb={};
+  function sigOf(it){var c={}; for(var k in it) if(k!=='upd') c[k]=it[k]; return JSON.stringify(c)}
+  function stamp(){
+    var now=Date.now(), seen={};
+    items.forEach(function(it){ seen[it.id]=1; var s=sigOf(it);
+      if(sig[it.id]!==s){ if(sig[it.id]!==undefined||!it.upd) it.upd=now; sig[it.id]=s } });
+    Object.keys(sig).forEach(function(id){ if(!seen[id]){ tomb[id]=now; delete sig[id] } });
+  }
   function load(){
     try{ var s=localStorage.getItem(KEY); items=s?JSON.parse(s):[]; if(!Array.isArray(items)) items=[]; }
     catch(e){ memOnly=true; items=[]; }
+    try{ tomb=(JSON.parse(localStorage.getItem(SYNCKEY)||'{}')||{}).tomb||{}; }catch(e){ tomb={}; }
+    items.forEach(function(it){ if(!it.upd) it.upd=it.created||1; sig[it.id]=sigOf(it); });
   }
   function save(){
-    try{ localStorage.setItem(KEY,JSON.stringify(items)); }
+    stamp();
+    try{ localStorage.setItem(KEY,JSON.stringify(items)); localStorage.setItem(SYNCKEY,JSON.stringify({tomb:tomb})); }
     catch(e){ memOnly=true; }
+    scheduleSync();
     document.getElementById('storeWarn').textContent = memOnly ? 'Warning: this browser blocked saving. Changes will be lost when you close the page. Use Export to keep them.' : '';
   }
 
@@ -667,8 +682,9 @@
 
   // ---- Google Calendar (sign-in runs in a Google pop-up; the token stays in this tab only) ----
   var GCLIENT='242696215667-mhpvk894fclhnqmvhc3e0a7jv16hc0fe.apps.googleusercontent.com';
-  var GSCOPE='https://www.googleapis.com/auth/calendar.calendarlist.readonly https://www.googleapis.com/auth/calendar.events';
-  var GAPI='https://www.googleapis.com/calendar/v3', TKEY='reminders.dashboard.gtoken', SKEY='reminders.dashboard.settings.v1';
+  var GSCOPE='https://www.googleapis.com/auth/calendar.calendarlist.readonly https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/drive.appdata';
+  var GAPI='https://www.googleapis.com/calendar/v3', DRIVE='https://www.googleapis.com/drive/v3', DUP='https://www.googleapis.com/upload/drive/v3';
+  var TKEY='reminders.dashboard.gtoken2', SKEY='reminders.dashboard.settings.v1';   // gtoken2: older tokens lack the Drive scope
   var gToken='', gExp=0, gCals=[], remote=[], gClient=null;
   var RRULE={daily:'RRULE:FREQ=DAILY',weekdays:'RRULE:FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR',weekly:'RRULE:FREQ=WEEKLY',monthly:'RRULE:FREQ=MONTHLY'};
 
@@ -700,9 +716,10 @@
       gClient.requestAccessToken();
     });
   }
-  function gfetch(path,opts){
+  function gfetch(path,opts){ return gcall(GAPI+path,opts) }
+  function gcall(url,opts){
     opts=opts||{}; opts.headers=Object.assign({Authorization:'Bearer '+gToken},opts.headers||{});
-    return fetch(GAPI+path,opts).then(function(r){
+    return fetch(url,opts).then(function(r){
       if(r.status===401){ gExp=0; gButton(); throw new Error('session expired, click Reconnect') }
       if(!r.ok) return r.text().then(function(t){ var m=''; try{m=JSON.parse(t).error.message}catch(e){} throw new Error(m||('HTTP '+r.status)) });
       return r.status===204?null:r.json();
@@ -712,7 +729,7 @@
     gButton(); gStatus('Connected. Loading calendars…');
     return gfetch('/users/me/calendarList?minAccessRole=reader').then(function(d){
       gCals=(d.items||[]).map(function(c){return {id:c.id,primary:!!c.primary,summary:c.summaryOverride||c.summary||c.id,writable:c.accessRole==='owner'||c.accessRole==='writer'}});
-      showMapping(); showPreview(); return syncEvents();
+      showMapping(); showPreview(); noDrive=false; syncTodos(); return syncEvents();
     }).then(function(){ gStatus('Calendars up to date at '+nowHM()+'.') })
       .catch(function(e){ gStatus('Google Calendar error: '+e.message) });
   }
@@ -756,6 +773,56 @@
       reminders:{useDefault:false,overrides:eventReminders(b.remind).map(function(m){return {method:'popup',minutes:m}})}};
     if(RRULE[b.repeat]) body.recurrence=[RRULE[b.repeat]];
     return gfetch('/calendars/'+encodeURIComponent(cal.id)+'/events',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  }
+
+  // ---- To-do sync: one hidden JSON file in your Google Drive "app data" area (not visible in Drive) ----
+  var SYNCFILE='reminders-sync.json', syncFileId='', syncing=false, noDrive=false, syncTimer=null;
+  function sStatus(t){document.getElementById('sStatus').textContent=t||''}
+  function scheduleSync(){ if(syncTimer) clearTimeout(syncTimer); if(gValid()&&!noDrive) syncTimer=setTimeout(syncTodos,2500); }
+  function mergeTodos(r){
+    var byId={}, t={};
+    [tomb,r.tomb||{}].forEach(function(m){Object.keys(m).forEach(function(id){t[id]=Math.max(t[id]||0,m[id])})});
+    (r.items||[]).concat(items).forEach(function(it){var c=byId[it.id]; if(!c||(it.upd||0)>(c.upd||0)) byId[it.id]=it});
+    var out=[]; Object.keys(byId).forEach(function(id){ if(!(t[id]&&t[id]>=(byId[id].upd||0))) out.push(byId[id]) });   // a newer delete wins
+    var cutoff=Date.now()-60*864e5; Object.keys(t).forEach(function(id){if(t[id]<cutoff) delete t[id]});
+    return {items:out,tomb:t};
+  }
+  function digest(items){return (items||[]).map(function(i){return i.id+':'+(i.upd||0)}).sort().join(',')}
+  function applyMerged(m){
+    items=m.items; tomb=m.tomb; sig={}; items.forEach(function(it){sig[it.id]=sigOf(it)});
+    try{ localStorage.setItem(KEY,JSON.stringify(items)); localStorage.setItem(SYNCKEY,JSON.stringify({tomb:tomb})); }catch(e){}
+    render(); checkAlerts();
+  }
+  function findSyncFile(){
+    if(syncFileId) return Promise.resolve(syncFileId);
+    return gcall(DRIVE+'/files?spaces=appDataFolder&fields=files(id)&q='+encodeURIComponent("name='"+SYNCFILE+"'")).then(function(d){
+      syncFileId=(d.files&&d.files[0]&&d.files[0].id)||''; return syncFileId; });
+  }
+  function pushTodos(id,m){
+    var content=JSON.stringify({v:1,items:m.items,tomb:m.tomb});
+    if(id) return gcall(DUP+'/files/'+id+'?uploadType=media',{method:'PATCH',headers:{'Content-Type':'application/json'},body:content});
+    var b='rmd'+uid(), meta=JSON.stringify({name:SYNCFILE,parents:['appDataFolder']});
+    var body='--'+b+'\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n'+meta+'\r\n--'+b+'\r\nContent-Type: application/json\r\n\r\n'+content+'\r\n--'+b+'--';
+    return gcall(DUP+'/files?uploadType=multipart&fields=id',{method:'POST',headers:{'Content-Type':'multipart/related; boundary='+b},body:body})
+      .then(function(f){ syncFileId=f.id; });
+  }
+  function syncTodos(){
+    if(!gValid()||syncing||noDrive||editing) return Promise.resolve();
+    syncing=true; sStatus('Syncing to-dos…');
+    return findSyncFile().then(function(id){
+      if(!id) return pushTodos('',mergeTodos({}));
+      return gcall(DRIVE+'/files/'+id+'?alt=media').then(function(r){
+        r=r||{}; var m=mergeTodos(r), changedLocal=digest(m.items)!==digest(items);
+        if(changedLocal) applyMerged(m);
+        var needPush=digest(m.items)!==digest(r.items)||JSON.stringify(m.tomb)!==JSON.stringify(r.tomb||{});
+        return needPush?pushTodos(id,m):null;
+      });
+    }).then(function(){ sStatus('To-dos synced at '+nowHM()+'.') })
+      .catch(function(e){
+        if(/not been used|disabled|accessNotConfigured|insufficient|scope|403|Forbidden/i.test(e.message)){ noDrive=true; sStatus('To-do sync is off: Google Drive permission is missing ('+e.message+'). See the setup steps, then click Reconnect.'); }
+        else if(/not found|404/i.test(e.message)){ syncFileId=''; sStatus('Sync file missing, will retry.'); }
+        else sStatus('To-do sync problem: '+e.message);
+      }).then(function(){ syncing=false });
   }
 
   // ---- Settings (categories, keywords, calendar per category), stored in this browser ----
@@ -813,7 +880,8 @@
   setInterval(function(){tick();render()},60000);
   setInterval(checkAlerts,15000);
   setInterval(function(){ if(gValid()) syncEvents(); else gButton() },300000);
-  document.addEventListener('visibilitychange',function(){ if(document.hidden){save()} else {tick();render();checkAlerts();if(gValid()) syncEvents(); else gButton()} });
+  setInterval(syncTodos,120000);
+  document.addEventListener('visibilitychange',function(){ if(document.hidden){save()} else {tick();render();checkAlerts();if(gValid()){syncEvents();syncTodos()} else gButton()} });
   window.addEventListener('pagehide',save);
 })();
 </script>
